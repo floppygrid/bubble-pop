@@ -1,12 +1,13 @@
 // ===== Bubble Pop — underwater O₂ survival (hand-tracking) =====
 //
+// The aquarium background image (from the Figma design) is shown on every
+// screen via CSS; this canvas is a TRANSPARENT overlay that only draws the
+// game entities (bubbles, jellyfish, cursor, effects). The webcam runs hidden
+// and is used solely for MediaPipe hand tracking.
+//
 // Goal: pop rising O₂ bubbles to refill an oxygen meter that constantly
 // drains. Avoid jellyfish — popping 3 ends the game, as does running out
 // of O₂. Difficulty (rise speed + spawn rate) ramps up over time.
-//
-// Two decoupled loops:
-//   1) MediaPipe Hands  -> writes index-fingertip position into `cursors[]`
-//   2) requestAnimationFrame game loop -> physics, collisions, rendering
 
 // ---------- DOM ----------
 const video    = document.getElementById('video');
@@ -29,13 +30,13 @@ const goReason     = document.getElementById('goReason');
 const goTime       = document.getElementById('goTime');
 const goBest       = document.getElementById('goBest');
 
-// ---------- Canvas coordinate space ----------
-const W = 1280, H = 720;
+// ---------- Canvas coordinate space (matches the 1200x896 Figma frame) ----------
+const W = 1200, H = 896;
 canvas.width = W; canvas.height = H;
 
 // ---------- State machine ----------
-const S = { START: 'start', LOADING: 'loading', INSTRUCT: 'instruct',
-            PLAYING: 'playing', PAUSED: 'paused', WAVE: 'wave', GAMEOVER: 'gameover' };
+const S = { START: 'start', INSTRUCT: 'instruct', PLAYING: 'playing',
+            PAUSED: 'paused', WAVE: 'wave', GAMEOVER: 'gameover' };
 let state = S.START;
 
 // ---------- Tunables ----------
@@ -44,12 +45,12 @@ const O2_REFILL  = 14;     // gained per O₂ bubble
 const O2_PENALTY = 12;     // lost per jellyfish sting
 const MAX_STRIKES= 3;
 
-// Bubbles 20% bigger; initial rise speed 20% faster than the old build.
-const O2_R_MIN = 46, O2_R_VAR = 18;   // radius 46..64  (was ~38..52)
+// Bubbles 20% bigger; initial rise speed 20% faster than the first build.
+const O2_R_MIN = 46, O2_R_VAR = 18;   // radius 46..64
 const JELLY_R_MIN = 46, JELLY_R_VAR = 16;
-const BASE_SPEED = 108;               // px/s at difficulty 1.0 (was 90 -> +20%)
+const BASE_SPEED = 108;               // px/s at difficulty 1.0
 
-// Difficulty ramp — same rate as the original build.
+// Difficulty ramp — speeds the rise, spawns, and O₂ drain over time.
 function difficulty()   { return 1 + Math.min(elapsed / 25, 3.5); }     // 1.0 -> ~4.5
 function riseSpeed()    { return BASE_SPEED * difficulty(); }
 function spawnInterval(){ return Math.max(0.40, 1.05 - elapsed * 0.012); }
@@ -60,7 +61,7 @@ function jellyChance()  { return 0.18 + Math.min(elapsed * 0.003, 0.17); } // 0.
 let o2 = O2_MAX, strikes = 0, elapsed = 0, survived = 0;
 let bestTime = Number(localStorage.getItem('bubblepop_best_time') || 0);
 let lastTime = 0, tNow = 0, spawnTimer = 0, lowO2Timer = 0;
-let muted = false, cameraStarted = false, cameraReady = false;
+let muted = false, cameraStarted = false;
 let goReasonKind = 'o2';
 
 // ---------- Entity pools ----------
@@ -69,23 +70,11 @@ const floats    = [];   // floating "+O₂" / "Sting!" text
 const particles = [];   // pop burst
 let   cursors   = [];    // fingertip positions (per detected hand)
 
-// Ambient background bubbles (atmosphere on every screen).
-const ambient = Array.from({ length: 26 }, () => ({
+// Ambient background bubbles (subtle motion on every screen).
+const ambient = Array.from({ length: 24 }, () => ({
   x: Math.random() * W, y: Math.random() * H,
-  r: 2 + Math.random() * 6, sp: 18 + Math.random() * 46, ph: Math.random() * 7,
+  r: 2 + Math.random() * 6, sp: 16 + Math.random() * 42, ph: Math.random() * 7,
 }));
-
-// Decorative seaweed + coral (positions fixed; they sway over time).
-const weeds  = Array.from({ length: 11 }, (_, i) => ({
-  x: 40 + i * (W / 11) + (Math.random() * 40 - 20),
-  h: 120 + Math.random() * 130, w: 10 + Math.random() * 8,
-  hue: 120 + Math.random() * 60, ph: Math.random() * 7,
-}));
-const corals = [
-  { x: 120,  c: '#ff7eb0', s: 1.1 }, { x: 360, c: '#ffae5c', s: 0.85 },
-  { x: 980,  c: '#b98cff', s: 1.0 }, { x: 1180, c: '#ff7eb0', s: 0.8 },
-  { x: 720,  c: '#ff9a6c', s: 0.7 },
-];
 
 // Game-over wave.
 let waveTop = H, waveCols = [];
@@ -221,101 +210,21 @@ function updateAmbient(dt) {
 }
 
 function updateWave(dt) {
-  waveTop -= 620 * dt;                       // froth climbs the screen
+  waveTop -= 720 * dt;                       // froth climbs the screen
   updateFloatsParticles(dt);
   for (const b of bubbles) if (b.popped) b.pop -= dt * 4;
   if (waveTop < -80) finalizeGameOver();
 }
 
 // ============================================================
-//  RENDER
+//  RENDER  (canvas is transparent; the aquarium shows through from CSS)
 // ============================================================
-function drawScene(t) {
-  // Background: camera (underwater-filtered) once available, else gradient.
-  if (cameraReady && video.readyState >= 2) {
-    ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1);   // mirror = selfie view
-    ctx.drawImage(video, 0, 0, W, H);
-    ctx.restore();
-    // Bluish "underwater" gradient filter for the magical feel.
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, 'rgba(120, 226, 255, 0.34)');
-    g.addColorStop(0.55, 'rgba(40, 120, 175, 0.42)');
-    g.addColorStop(1, 'rgba(10, 42, 70, 0.60)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  } else {
-    const g = ctx.createLinearGradient(60, 40, W - 60, H - 40);
-    g.addColorStop(0, '#b8f6fe'); g.addColorStop(1, '#476987');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  }
-  drawLightRays(t);
-  drawCorals(t);
-  drawSeaweed(t);
-  drawAmbient();
-  // soft vignette
-  const v = ctx.createRadialGradient(W/2, H/2, H*0.3, W/2, H/2, H*0.8);
-  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(2,16,30,0.45)');
-  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
-}
-
-function drawLightRays(t) {
-  ctx.save(); ctx.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < 3; i++) {
-    const x = (i * 420 + Math.sin(t * 0.15 + i) * 60) + 160;
-    const g = ctx.createLinearGradient(x, 0, x - 160, H);
-    g.addColorStop(0, 'rgba(200,245,255,0.16)');
-    g.addColorStop(1, 'rgba(200,245,255,0)');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.moveTo(x - 40, 0); ctx.lineTo(x + 90, 0);
-    ctx.lineTo(x - 110, H); ctx.lineTo(x - 280, H); ctx.closePath(); ctx.fill();
-  }
-  ctx.restore();
-}
-
 function drawAmbient() {
   ctx.save();
   for (const a of ambient) {
-    ctx.globalAlpha = 0.35;
+    ctx.globalAlpha = 0.3;
     ctx.beginPath(); ctx.arc(a.x + Math.sin(a.ph) * 4, a.y, a.r, 0, 7);
-    ctx.fillStyle = 'rgba(220,250,255,0.7)'; ctx.fill();
-  }
-  ctx.restore();
-}
-
-function drawSeaweed(t) {
-  ctx.save(); ctx.lineCap = 'round';
-  for (const wd of weeds) {
-    ctx.beginPath(); ctx.moveTo(wd.x, H);
-    const segs = 6;
-    for (let s = 1; s <= segs; s++) {
-      const yy = H - (wd.h * s) / segs;
-      const xx = wd.x + Math.sin(t * 1.3 + wd.ph + s * 0.7) * (8 + s * 2.2);
-      ctx.lineTo(xx, yy);
-    }
-    ctx.strokeStyle = `hsla(${wd.hue}, 70%, 45%, 0.8)`;
-    ctx.lineWidth = wd.w; ctx.stroke();
-  }
-  ctx.restore();
-}
-
-function drawCorals(t) {
-  ctx.save();
-  for (const c of corals) {
-    const sway = Math.sin(t * 0.8 + c.x) * 3;
-    ctx.save(); ctx.translate(c.x + sway, H); ctx.scale(c.s, c.s);
-    ctx.fillStyle = c.c; ctx.globalAlpha = 0.85;
-    // simple branching coral fan
-    for (let b = -2; b <= 2; b++) {
-      ctx.save(); ctx.rotate(b * 0.28);
-      ctx.beginPath();
-      ctx.moveTo(-7, 0);
-      ctx.quadraticCurveTo(-10, -70, 0, -120);
-      ctx.quadraticCurveTo(10, -70, 7, 0);
-      ctx.closePath(); ctx.fill();
-      ctx.beginPath(); ctx.arc(0, -120, 11, 0, 7); ctx.fill();   // tip knob
-      ctx.restore();
-    }
-    ctx.restore();
+    ctx.fillStyle = 'rgba(225,250,255,0.7)'; ctx.fill();
   }
   ctx.restore();
 }
@@ -327,36 +236,36 @@ function drawO2Bubble(b) {
   ctx.save(); ctx.globalAlpha = a;
 
   const g = ctx.createRadialGradient(b.x - r*0.35, b.y - r*0.35, r*0.1, b.x, b.y, r);
-  g.addColorStop(0, 'rgba(255,255,255,0.55)');
-  g.addColorStop(0.5, 'rgba(190,245,255,0.20)');
-  g.addColorStop(1, 'rgba(120,210,255,0.10)');
+  g.addColorStop(0, 'rgba(255,255,255,0.6)');
+  g.addColorStop(0.5, 'rgba(190,245,255,0.22)');
+  g.addColorStop(1, 'rgba(120,210,255,0.12)');
   ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, 7); ctx.fillStyle = g; ctx.fill();
 
-  ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(225,250,255,0.85)'; ctx.stroke();
+  ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.stroke();
 
   ctx.beginPath(); ctx.arc(b.x - r*0.34, b.y - r*0.36, r*0.18, 0, 7);
-  ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.fill();
   ctx.beginPath(); ctx.arc(b.x + r*0.3, b.y + r*0.28, r*0.08, 0, 7);
   ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.fill();
 
-  ctx.fillStyle = 'rgba(255,255,255,0.95)';
-  ctx.font = `800 ${Math.round(r * 0.6)}px system-ui, sans-serif`;
+  ctx.fillStyle = 'rgba(255,255,255,0.97)';
+  ctx.font = `800 ${Math.round(r * 0.6)}px Rubik, system-ui, sans-serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(0,60,90,0.6)'; ctx.shadowBlur = 6;
+  ctx.shadowColor = 'rgba(0,60,90,0.7)'; ctx.shadowBlur = 6;
   ctx.fillText('O₂', b.x, b.y + 1);
   ctx.restore();
 }
 
 function drawJelly(b) {
   const scale = b.popped ? 1 + (1 - b.pop) * 0.7 : 1;
-  const a = (b.popped ? Math.max(b.pop, 0) : 1) * 0.94;
+  const a = (b.popped ? Math.max(b.pop, 0) : 1) * 0.96;
   const r = b.r * scale;
   const pulse = 1 + Math.sin(b.ph * 2) * 0.06;
   const cx = b.x, cy = b.y;
   ctx.save(); ctx.globalAlpha = a;
 
   // tentacles
-  ctx.strokeStyle = `hsla(${b.hue},90%,82%,0.55)`; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.strokeStyle = `hsla(${b.hue},90%,82%,0.6)`; ctx.lineWidth = 3; ctx.lineCap = 'round';
   for (let k = -2; k <= 2; k++) {
     const tx = cx + k * (r * 0.26);
     ctx.beginPath(); ctx.moveTo(tx, cy + r * 0.25);
@@ -371,8 +280,8 @@ function drawJelly(b) {
   // bell with scalloped bottom
   const bw = r * 0.82 * pulse, bh = r * 0.72 * pulse;
   const bell = ctx.createRadialGradient(cx, cy - bh*0.4, r*0.1, cx, cy, r);
-  bell.addColorStop(0, `hsla(${b.hue},95%,90%,0.6)`);
-  bell.addColorStop(1, `hsla(${b.hue},90%,72%,0.18)`);
+  bell.addColorStop(0, `hsla(${b.hue},95%,90%,0.65)`);
+  bell.addColorStop(1, `hsla(${b.hue},90%,72%,0.22)`);
   ctx.beginPath();
   ctx.moveTo(cx - bw, cy);
   ctx.quadraticCurveTo(cx - bw, cy - bh * 1.5, cx, cy - bh * 1.5);
@@ -385,7 +294,7 @@ function drawJelly(b) {
   }
   ctx.closePath();
   ctx.fillStyle = bell; ctx.fill();
-  ctx.strokeStyle = `hsla(${b.hue},90%,86%,0.7)`; ctx.lineWidth = 2; ctx.stroke();
+  ctx.strokeStyle = `hsla(${b.hue},90%,88%,0.75)`; ctx.lineWidth = 2; ctx.stroke();
 
   // cute eyes
   const ex = r * 0.24, ey = -r * 0.16, er = r * 0.13;
@@ -411,7 +320,7 @@ function drawFX() {
   ctx.globalAlpha = 1;
   for (const f of floats) {
     ctx.globalAlpha = Math.max(f.life, 0);
-    ctx.font = '800 34px system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.font = '800 34px Rubik, system-ui, sans-serif'; ctx.textAlign = 'center';
     ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.strokeText(f.text, f.x, f.y);
     ctx.fillStyle = f.color; ctx.fillText(f.text, f.x, f.y);
   }
@@ -428,7 +337,6 @@ function drawCursors() {
 }
 
 function drawWave() {
-  // translucent froth fill below the climbing edge
   ctx.save();
   ctx.fillStyle = 'rgba(150,228,255,0.55)';
   ctx.fillRect(0, waveTop + 30, W, H - waveTop);
@@ -443,19 +351,22 @@ function drawWave() {
 }
 
 function drawPaused() {
-  ctx.fillStyle = 'rgba(3,18,34,0.55)'; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#eaffff'; ctx.font = '800 56px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(3,18,34,0.5)'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#eaffff'; ctx.font = '800 56px Rubik, system-ui, sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText('⏸ Paused', W/2, H/2);
 }
 
 function render() {
-  drawScene(tNow);
+  ctx.clearRect(0, 0, W, H);     // keep canvas transparent so the aquarium shows
+  drawAmbient();
   if (state === S.PLAYING || state === S.PAUSED) {
     drawEntities(); drawFX(); drawCursors();
     if (!cursors.length && state === S.PLAYING) {
-      ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = '600 26px system-ui, sans-serif';
-      ctx.textAlign = 'center'; ctx.fillText('✋ Show your hand to the camera', W/2, H - 40);
+      ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = '700 26px Rubik, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = 'rgba(0,20,40,0.9)'; ctx.shadowBlur = 8;
+      ctx.fillText('✋ Show your hand to the camera', W/2, H - 40); ctx.shadowBlur = 0;
     }
     updateHud();
     if (state === S.PAUSED) drawPaused();
@@ -513,10 +424,10 @@ function noiseBurst(dur, gain, freq) {
   src.connect(bp); bp.connect(g); g.connect(ac.destination); src.start(t);
 }
 
-function playClick() { if (muted) return; tone('triangle', 680, 1040, 0.09, 0.25); tone('square', 1040, 1320, 0.06, 0.08, 0.05); }
-function playPop()   { if (muted) return; tone('sine', 900, 280, 0.12, 0.3); noiseBurst(0.06, 0.12, 1200); }
-function playWarn()  { if (muted) return; tone('sine', 440, 440, 0.12, 0.18); }
-function playGameOverSound() { if (muted) return; tone('sawtooth', 320, 70, 0.7, 0.25); tone('sine', 240, 60, 0.8, 0.15, 0.05); }
+function playClick() { if (muted) return; tone('triangle', 680, 1040, 0.09, 0.3); tone('square', 1040, 1320, 0.06, 0.1, 0.05); }
+function playPop()   { if (muted) return; tone('sine', 900, 280, 0.12, 0.32); noiseBurst(0.06, 0.14, 1200); }
+function playWarn()  { if (muted) return; tone('sine', 440, 440, 0.12, 0.2); }
+function playGameOverSound() { if (muted) return; tone('sawtooth', 320, 70, 0.7, 0.26); tone('sine', 240, 60, 0.8, 0.16, 0.05); }
 function playCry() {                              // wavering, sad jellyfish cry
   if (muted) return;
   const ac = audio(), t = ac.currentTime;
@@ -524,7 +435,7 @@ function playCry() {                              // wavering, sad jellyfish cry
   o.type = 'triangle'; o.frequency.setValueAtTime(520, t);
   o.frequency.exponentialRampToValueAtTime(190, t + 0.55);
   lfo.frequency.value = 13; lg.gain.value = 28; lfo.connect(lg); lg.connect(o.frequency);
-  g.gain.setValueAtTime(0.28, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+  g.gain.setValueAtTime(0.3, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
   o.connect(g); g.connect(ac.destination);
   o.start(t); lfo.start(t); o.stop(t + 0.62); lfo.stop(t + 0.62);
 }
@@ -539,7 +450,7 @@ function onResults(res) {
   if (res.multiHandLandmarks) {
     for (const lm of res.multiHandLandmarks) {
       const tip = lm[8];                                  // index fingertip
-      cursors.push({ x: (1 - tip.x) * W, y: tip.y * H });  // mirror x to match view
+      cursors.push({ x: (1 - tip.x) * W, y: tip.y * H });  // mirror x to match a selfie view
     }
   }
 }
@@ -548,9 +459,9 @@ async function startTracking() {
   hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
   hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
   hands.onResults(onResults);
-  camera = new Camera(video, { onFrame: async () => { await hands.send({ image: video }); }, width: W, height: H });
+  camera = new Camera(video, { onFrame: async () => { await hands.send({ image: video }); }, width: 1280, height: 720 });
   await camera.start();
-  cameraStarted = true; cameraReady = true;
+  cameraStarted = true;
 }
 
 // ============================================================
@@ -576,8 +487,8 @@ function gameOver(reason) {
   playGameOverSound();
   // launch the rising bubble-wave closing animation
   waveTop = H + 40;
-  waveCols = Array.from({ length: 70 }, () => ({
-    x: Math.random() * W, r: 14 + Math.random() * 40, ph: Math.random() * 7,
+  waveCols = Array.from({ length: 80 }, () => ({
+    x: Math.random() * W, r: 14 + Math.random() * 44, ph: Math.random() * 7,
   }));
   state = S.WAVE;
 }

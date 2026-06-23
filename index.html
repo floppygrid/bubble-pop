@@ -3,78 +3,83 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>🫧 Bubble Pop — Underwater O₂ Survival</title>
-  <link rel="stylesheet" href="style.css" />
+  <title>🫧 Bubble Pop</title>
+
+  <!-- Title font from the Figma design: Rubik Scribble -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Rubik+Scribble&family=Rubik:wght@500;700&display=swap" rel="stylesheet" />
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; }
+
+    /* Full-bleed aquarium background — covers the whole window, no frame */
+    body {
+      font-family: "Rubik", system-ui, sans-serif;
+      background: #0a2336 url("assets/background.jpg") center / cover no-repeat fixed;
+      cursor: pointer;
+    }
+
+    /* Centered title; letters rise from below and gather into the word */
+    .title {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      animation: floatTitle 5s ease-in-out 2.6s infinite;   /* gentle bob once formed */
+    }
+    .glyph {
+      font-family: "Rubik Scribble", cursive;
+      font-weight: 400; line-height: 1;
+      font-size: clamp(44px, 9vw, 124px);
+      color: #ffffff;
+      text-shadow: 2px 10px 6px rgba(0, 0, 0, 0.89);        /* exact shadow from Figma */
+      display: inline-block;
+      animation: gather 1.2s cubic-bezier(0.18, 0.9, 0.25, 1.2) var(--d) both;
+    }
+    .sp { width: 0.4em; }
+
+    /* Each letter floats up from below at a different spot, then aligns */
+    @keyframes gather {
+      0%   { transform: translate(var(--sx), var(--sy)) scale(0.4) rotate(-8deg); opacity: 0; }
+      70%  { opacity: 1; }
+      85%  { transform: translate(0, -14px) scale(1.06); }
+      100% { transform: translate(0, 0) scale(1) rotate(0); opacity: 1; }
+    }
+    @keyframes floatTitle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+
+    /* "Dive in" prompt fades in after the word forms */
+    .enter {
+      position: fixed; left: 50%; bottom: 6%; transform: translateX(-50%);
+      font-weight: 700; font-size: clamp(15px, 2vw, 20px); color: #fff;
+      letter-spacing: 1px; text-shadow: 0 2px 10px rgba(0, 20, 40, 0.9);
+      background: rgba(8, 34, 52, 0.4); border: 1px solid rgba(255,255,255,0.35);
+      padding: 12px 26px; border-radius: 999px; backdrop-filter: blur(6px);
+      opacity: 0; animation: fadeInUp 0.8s ease 3s forwards, pulse 2s ease-in-out 3.2s infinite;
+    }
+    @keyframes fadeInUp { from { opacity: 0; transform: translate(-50%, 14px); } to { opacity: 1; transform: translate(-50%, 0); } }
+    @keyframes pulse { 0%, 100% { transform: translate(-50%, 0) scale(1); } 50% { transform: translate(-50%, 0) scale(1.05); } }
+  </style>
 </head>
 <body>
-  <div id="app">
-    <!-- ===== HUD: O₂ meter + jellyfish strikes (only shown in-game) ===== -->
-    <header id="hud" class="hidden">
-      <div class="brand">🫧 Bubble&nbsp;Pop</div>
+  <!-- Letters rise from below (varied --sx/--sy) and gather into "Bubble PoP" -->
+  <h1 class="title" aria-label="Bubble PoP">
+    <span class="glyph" style="--sx:-24vw; --sy:95vh; --d:.10s">B</span>
+    <span class="glyph" style="--sx:-16vw; --sy:80vh; --d:.25s">u</span>
+    <span class="glyph" style="--sx:-6vw;  --sy:100vh;--d:.40s">b</span>
+    <span class="glyph" style="--sx:4vw;   --sy:78vh; --d:.55s">b</span>
+    <span class="glyph" style="--sx:-10vw; --sy:88vh; --d:.70s">l</span>
+    <span class="glyph" style="--sx:10vw;  --sy:96vh; --d:.85s">e</span>
+    <span class="sp"></span>
+    <span class="glyph" style="--sx:18vw;  --sy:82vh; --d:1.00s">P</span>
+    <span class="glyph" style="--sx:24vw;  --sy:100vh;--d:1.15s">o</span>
+    <span class="glyph" style="--sx:30vw;  --sy:86vh; --d:1.30s">P</span>
+  </h1>
 
-      <div class="o2-wrap">
-        <span class="o2-label">O₂</span>
-        <div class="o2-bar"><div id="o2Fill" class="o2-fill"></div></div>
-      </div>
+  <div class="enter">Click to dive in →</div>
 
-      <div class="strikes" id="strikes" title="Pop 3 jellyfish and it's game over">
-        <span class="strike" data-i="0">🪼</span>
-        <span class="strike" data-i="1">🪼</span>
-        <span class="strike" data-i="2">🪼</span>
-      </div>
-
-      <button id="muteBtn" class="icon-btn" title="Toggle sound">🔊</button>
-      <button id="pauseBtn" class="icon-btn" title="Pause / Resume">⏸</button>
-    </header>
-
-    <!-- ===== Stage: webcam (hidden) + canvas + screen overlays ===== -->
-    <div id="stage">
-      <video id="video" playsinline></video>
-      <canvas id="canvas"></canvas>
-
-      <!-- Start screen: animated rising title -->
-      <div id="startScreen" class="overlay">
-        <h1 class="title" aria-label="Bubble Pop">
-          <span style="animation-delay:.05s">B</span><span style="animation-delay:.12s">u</span><span style="animation-delay:.19s">b</span><span style="animation-delay:.26s">b</span><span style="animation-delay:.33s">l</span><span style="animation-delay:.40s">e</span><span class="sp"></span><span style="animation-delay:.50s">P</span><span style="animation-delay:.57s">o</span><span style="animation-delay:.64s">p</span>
-        </h1>
-        <p class="tagline">Dive in. Breathe the bubbles. Dodge the jellyfish.</p>
-        <button id="startBtn" class="btn">▶ Start Game</button>
-        <p id="status" class="status"></p>
-      </div>
-
-      <!-- Instructions screen (after camera granted) -->
-      <div id="instructions" class="overlay hidden">
-        <div class="panel">
-          <h2>How to play</h2>
-          <ul class="howlist">
-            <li><span class="ic">🫧</span> Pop the <b>O₂ bubbles</b> rising from below to refill your oxygen.</li>
-            <li><span class="ic">🪼</span> <b>Avoid the jellyfish!</b> Pop 3 and it's game over.</li>
-            <li><span class="ic">🌬️</span> Your <b>O₂ drains</b> over time — keep popping to survive.</li>
-            <li><span class="ic">✋</span> Move your hand — the glowing ring follows your index finger.</li>
-            <li><span class="ic">⚡</span> It gets <b>faster</b> the longer you last. Good luck!</li>
-          </ul>
-          <button id="letsGoBtn" class="btn">Let's go →</button>
-        </div>
-      </div>
-
-      <!-- Game-over screen -->
-      <div id="gameover" class="overlay hidden">
-        <div class="panel">
-          <h2 class="go-title">Game Over</h2>
-          <p id="goReason" class="go-reason"></p>
-          <p class="go-stat">You survived <b id="goTime">0s</b></p>
-          <p class="go-best">Best: <b id="goBest">0s</b></p>
-          <button id="playAgainBtn" class="btn">↻ Play again</button>
-        </div>
-      </div>
-    </div>
-
-    <p class="footnote">Tip: good lighting + keep your hand in frame. Pop <b>🫧</b>, dodge <b>🪼</b>.</p>
-  </div>
-
-  <!-- MediaPipe Hands — hand tracking, loaded from CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-  <script src="game.js"></script>
+  <script>
+    // Loading screen loads the game when the user is ready.
+    document.body.addEventListener('click', () => { window.location.href = 'game.html'; });
+  </script>
 </body>
 </html>

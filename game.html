@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🫧 Bubble Pop — Underwater O₂ Survival</title>
+
+  <!-- Fonts from the Figma design: Rubik Scribble (title) + Rubik (UI) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Rubik+Scribble&family=Rubik:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- ===== HUD: O₂ meter + jellyfish strikes (only shown in-game) ===== -->
+    <header id="hud" class="hidden">
+      <div class="brand">🫧 Bubble&nbsp;Pop</div>
+
+      <div class="o2-wrap">
+        <span class="o2-label">O₂</span>
+        <div class="o2-bar"><div id="o2Fill" class="o2-fill"></div></div>
+      </div>
+
+      <div class="strikes" id="strikes" title="Pop 3 jellyfish and it's game over">
+        <span class="strike" data-i="0">🪼</span>
+        <span class="strike" data-i="1">🪼</span>
+        <span class="strike" data-i="2">🪼</span>
+      </div>
+
+      <button id="muteBtn" class="icon-btn" title="Toggle sound">🔊</button>
+      <button id="pauseBtn" class="icon-btn" title="Pause / Resume">⏸</button>
+    </header>
+
+    <!-- ===== Stage: aquarium background + canvas + screen overlays ===== -->
+    <div id="stage">
+      <video id="video" playsinline></video>
+      <canvas id="canvas"></canvas>
+
+      <!-- Loading / start screen: bubble-letters rise from the bottom -->
+      <div id="startScreen" class="overlay">
+        <h1 class="title" aria-label="Bubble PoP">
+          <span style="animation-delay:.10s">B</span><span style="animation-delay:.25s">u</span><span style="animation-delay:.40s">b</span><span style="animation-delay:.55s">b</span><span style="animation-delay:.70s">l</span><span style="animation-delay:.85s">e</span><span class="sp"></span><span style="animation-delay:1.05s">P</span><span style="animation-delay:1.20s">o</span><span style="animation-delay:1.35s">P</span>
+        </h1>
+        <p class="tagline">Dive in. Breathe the bubbles. Dodge the jellyfish.</p>
+        <button id="startBtn" class="btn">▶ Start Game</button>
+        <p id="status" class="status"></p>
+      </div>
+
+      <!-- Instructions screen (after camera granted) -->
+      <div id="instructions" class="overlay hidden">
+        <div class="panel">
+          <h2>How to play</h2>
+          <ul class="howlist">
+            <li><span class="ic">🫧</span> Pop the <b>O₂ bubbles</b> rising from below to refill your oxygen.</li>
+            <li><span class="ic">🪼</span> <b>Avoid the jellyfish!</b> Pop 3 and it's game over.</li>
+            <li><span class="ic">🌬️</span> Your <b>O₂ drains</b> over time — keep popping to survive.</li>
+            <li><span class="ic">✋</span> Move your hand — the glowing ring follows your index finger.</li>
+            <li><span class="ic">⚡</span> It gets <b>faster</b> the longer you last. Good luck!</li>
+          </ul>
+          <button id="letsGoBtn" class="btn">Let's go →</button>
+        </div>
+      </div>
+
+      <!-- Game-over screen -->
+      <div id="gameover" class="overlay hidden">
+        <div class="panel">
+          <h2 class="go-title">Game Over</h2>
+          <p id="goReason" class="go-reason"></p>
+          <p class="go-stat">You survived <b id="goTime">0s</b></p>
+          <p class="go-best">Best: <b id="goBest">0s</b></p>
+          <button id="playAgainBtn" class="btn">↻ Play again</button>
+        </div>
+      </div>
+    </div>
+
+    <p class="footnote">Tip: good lighting + keep your hand in frame. Pop <b>🫧</b>, dodge <b>🪼</b>.</p>
+  </div>
+
+  <!-- MediaPipe Hands — hand tracking, loaded from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <script src="game.js"></script>
+</body>
+</html>
