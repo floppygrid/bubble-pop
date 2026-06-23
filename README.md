@@ -1,4 +1,4 @@
-# 💰 Money Bubble
+# 💰 Bubble Pop
 
 A webcam **hand-tracking** game. Move your hand to pop falling bubbles:
 

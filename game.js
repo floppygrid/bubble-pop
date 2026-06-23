@@ -1,4 +1,4 @@
-// ===== Money Bubble — hand-tracking bubble-popper =====
+// ===== Bubble Pop — hand-tracking bubble-popper =====
 //
 // Architecture overview:
 //   - MediaPipe Hands runs its own loop, detects the hand each frame, and
