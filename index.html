@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>💰 Money Bubble — Hand Tracking Game</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- ===== Top HUD: live stats + controls ===== -->
+    <header id="hud">
+      <div class="hud-item"><span class="hud-label">Money</span><span id="score" class="hud-value">$0</span></div>
+      <div class="hud-item"><span class="hud-label">Best</span><span id="best" class="hud-value">$0</span></div>
+      <div class="hud-item"><span class="hud-label">Time</span><span id="time" class="hud-value">0s</span></div>
+      <div class="hud-item"><span class="hud-label">Speed</span><span id="speed" class="hud-value">x1.0</span></div>
+      <button id="muteBtn" class="icon-btn" title="Toggle sound">🔊</button>
+      <button id="pauseBtn" class="icon-btn" title="Pause / Resume" disabled>⏸</button>
+    </header>
+
+    <!-- ===== Game stage: webcam (hidden) + canvas + start overlay ===== -->
+    <div id="stage">
+      <video id="video" playsinline></video>
+      <canvas id="canvas"></canvas>
+
+      <div id="overlay" class="overlay">
+        <div class="panel">
+          <h1>💰 Money Bubble</h1>
+          <p class="tagline">Catch the cash with your hands!</p>
+          <ul class="legend">
+            <li><span class="dot green"></span> Green — grab the money <b>(+$)</b></li>
+            <li><span class="dot red"></span> Red — avoid! <b>(−$)</b></li>
+            <li><span class="dot blue"></span> Blue — surprise gifts 🎁</li>
+          </ul>
+          <p class="howto">
+            Allow camera access, then <b>move your hand</b> so the glowing ring
+            follows your index finger. Touch a bubble to pop it. Bubbles speed up
+            the longer you play!
+          </p>
+          <button id="startBtn" class="primary-btn">▶ Start Game</button>
+          <p id="status" class="status"></p>
+        </div>
+      </div>
+    </div>
+
+    <p class="footnote">Tip: good lighting + keep your hand in frame. Pop <b>green</b>, dodge <b>red</b>.</p>
+  </div>
+
+  <!-- MediaPipe Hands — loaded from CDN, no install needed -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <script src="game.js"></script>
+</body>
+</html>
