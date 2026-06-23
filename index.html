@@ -3,50 +3,76 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>💰 Bubble Pop — Hand Tracking Game</title>
+  <title>🫧 Bubble Pop — Underwater O₂ Survival</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="app">
-    <!-- ===== Top HUD: live stats + controls ===== -->
-    <header id="hud">
-      <div class="hud-item"><span class="hud-label">Money</span><span id="score" class="hud-value">$0</span></div>
-      <div class="hud-item"><span class="hud-label">Best</span><span id="best" class="hud-value">$0</span></div>
-      <div class="hud-item"><span class="hud-label">Time</span><span id="time" class="hud-value">0s</span></div>
-      <div class="hud-item"><span class="hud-label">Speed</span><span id="speed" class="hud-value">x1.0</span></div>
+    <!-- ===== HUD: O₂ meter + jellyfish strikes (only shown in-game) ===== -->
+    <header id="hud" class="hidden">
+      <div class="brand">🫧 Bubble&nbsp;Pop</div>
+
+      <div class="o2-wrap">
+        <span class="o2-label">O₂</span>
+        <div class="o2-bar"><div id="o2Fill" class="o2-fill"></div></div>
+      </div>
+
+      <div class="strikes" id="strikes" title="Pop 3 jellyfish and it's game over">
+        <span class="strike" data-i="0">🪼</span>
+        <span class="strike" data-i="1">🪼</span>
+        <span class="strike" data-i="2">🪼</span>
+      </div>
+
       <button id="muteBtn" class="icon-btn" title="Toggle sound">🔊</button>
-      <button id="pauseBtn" class="icon-btn" title="Pause / Resume" disabled>⏸</button>
+      <button id="pauseBtn" class="icon-btn" title="Pause / Resume">⏸</button>
     </header>
 
-    <!-- ===== Game stage: webcam (hidden) + canvas + start overlay ===== -->
+    <!-- ===== Stage: webcam (hidden) + canvas + screen overlays ===== -->
     <div id="stage">
       <video id="video" playsinline></video>
       <canvas id="canvas"></canvas>
 
-      <div id="overlay" class="overlay">
+      <!-- Start screen: animated rising title -->
+      <div id="startScreen" class="overlay">
+        <h1 class="title" aria-label="Bubble Pop">
+          <span style="animation-delay:.05s">B</span><span style="animation-delay:.12s">u</span><span style="animation-delay:.19s">b</span><span style="animation-delay:.26s">b</span><span style="animation-delay:.33s">l</span><span style="animation-delay:.40s">e</span><span class="sp"></span><span style="animation-delay:.50s">P</span><span style="animation-delay:.57s">o</span><span style="animation-delay:.64s">p</span>
+        </h1>
+        <p class="tagline">Dive in. Breathe the bubbles. Dodge the jellyfish.</p>
+        <button id="startBtn" class="btn">▶ Start Game</button>
+        <p id="status" class="status"></p>
+      </div>
+
+      <!-- Instructions screen (after camera granted) -->
+      <div id="instructions" class="overlay hidden">
         <div class="panel">
-          <h1>💰 Bubble Pop</h1>
-          <p class="tagline">Catch the cash with your hands!</p>
-          <ul class="legend">
-            <li><span class="dot green"></span> Green — grab the money <b>(+$)</b></li>
-            <li><span class="dot red"></span> Red — avoid! <b>(−$)</b></li>
-            <li><span class="dot blue"></span> Blue — surprise gifts 🎁</li>
+          <h2>How to play</h2>
+          <ul class="howlist">
+            <li><span class="ic">🫧</span> Pop the <b>O₂ bubbles</b> rising from below to refill your oxygen.</li>
+            <li><span class="ic">🪼</span> <b>Avoid the jellyfish!</b> Pop 3 and it's game over.</li>
+            <li><span class="ic">🌬️</span> Your <b>O₂ drains</b> over time — keep popping to survive.</li>
+            <li><span class="ic">✋</span> Move your hand — the glowing ring follows your index finger.</li>
+            <li><span class="ic">⚡</span> It gets <b>faster</b> the longer you last. Good luck!</li>
           </ul>
-          <p class="howto">
-            Allow camera access, then <b>move your hand</b> so the glowing ring
-            follows your index finger. Touch a bubble to pop it. Bubbles speed up
-            the longer you play!
-          </p>
-          <button id="startBtn" class="primary-btn">▶ Start Game</button>
-          <p id="status" class="status"></p>
+          <button id="letsGoBtn" class="btn">Let's go →</button>
+        </div>
+      </div>
+
+      <!-- Game-over screen -->
+      <div id="gameover" class="overlay hidden">
+        <div class="panel">
+          <h2 class="go-title">Game Over</h2>
+          <p id="goReason" class="go-reason"></p>
+          <p class="go-stat">You survived <b id="goTime">0s</b></p>
+          <p class="go-best">Best: <b id="goBest">0s</b></p>
+          <button id="playAgainBtn" class="btn">↻ Play again</button>
         </div>
       </div>
     </div>
 
-    <p class="footnote">Tip: good lighting + keep your hand in frame. Pop <b>green</b>, dodge <b>red</b>.</p>
+    <p class="footnote">Tip: good lighting + keep your hand in frame. Pop <b>🫧</b>, dodge <b>🪼</b>.</p>
   </div>
 
-  <!-- MediaPipe Hands — loaded from CDN, no install needed -->
+  <!-- MediaPipe Hands — hand tracking, loaded from CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
   <script src="game.js"></script>
