@@ -376,7 +376,7 @@ button { font: inherit; cursor: pointer; }
   height: 100%;
   object-fit: cover;
   transform: scaleX(-1); /* mirror */
-  filter: saturate(0.85) brightness(0.95) contrast(1.05);
+  filter: saturate(0.7) brightness(0.96) contrast(1.08) hue-rotate(-8deg);
   opacity: 0;
   transition: opacity 0.8s ease;
 }
@@ -387,14 +387,14 @@ button { font: inherit; cursor: pointer; }
   inset: 0;
   background:
     /* corner vignette — draws the eye to the player in the middle */
-    radial-gradient(130% 130% at 50% 42%, transparent 48%, rgba(2, 16, 44, 0.64) 100%),
-    /* sunlit surface above, beautiful ocean blue below */
+    radial-gradient(130% 130% at 50% 42%, transparent 44%, rgba(1, 12, 42, 0.72) 100%),
+    /* sunlit surface above, deep ocean blue below — strong & blue */
     linear-gradient(
       180deg,
-      rgba(165, 225, 255, 0.2) 0%,
-      rgba(60, 150, 215, 0.32) 35%,
-      rgba(18, 90, 170, 0.5) 68%,
-      rgba(4, 35, 95, 0.76) 100%
+      rgba(140, 210, 255, 0.32) 0%,
+      rgba(45, 135, 220, 0.48) 35%,
+      rgba(12, 80, 175, 0.64) 68%,
+      rgba(2, 26, 92, 0.86) 100%
     );
   mix-blend-mode: multiply;
   pointer-events: none;

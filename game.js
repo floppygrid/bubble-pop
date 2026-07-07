@@ -119,6 +119,11 @@ const snd = {
     // a letter lands in the title
     tone(440 + i * 65, 480 + i * 65, 0.09, { type: 'square', gain: 0.07 });
   },
+  blub() {
+    // blowing bubbles from the mouth
+    tone(280, 720, 0.12, { type: 'sine', gain: 0.06 });
+    tone(400, 950, 0.1, { type: 'sine', gain: 0.05, at: 0.09 });
+  },
 };
 
 /* tiny chiptune sequencer — melodies are just arrays of Hz (0 = rest) */
@@ -269,7 +274,9 @@ async function playIntro() {
     return anim.finished.then(() => snd.blip(i)).catch(() => {});
   });
 
-  await Promise.all(anims);
+  // finish when the letters land — or after a grace period if the tab is
+  // backgrounded/throttled, so the Start button is never unreachable
+  await Promise.race([Promise.all(anims), wait(6000)]);
 
   // hand over to the real title
   homeTitle.classList.add('is-live');
@@ -295,7 +302,8 @@ function openInstructions() {
   } else {
     box.hidden = true;
   }
-  preloadHands(); // warm the hand-tracking model while the player reads
+  preloadHands(); // warm the tracking models while the player reads
+  preloadFace();
   showScreen('instructions');
   music.start('manual');
 }
@@ -326,6 +334,10 @@ let fishTimer = 0;
 let handsApi = null;
 let handsReady = false;
 let handLoopOn = false;
+let faceApi = null;
+let faceReady = false;
+let visionTick = 0;
+const mouth = { open: false, x: 0, y: 0, lastEmit: 0, lastSnd: 0 };
 
 function resizeCanvas() {
   DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -663,10 +675,62 @@ function onHands(res) {
 
 async function handLoop() {
   if (!handLoopOn) return;
-  if (handsReady && camStream && video.readyState >= 2) {
-    try { await handsApi.send({ image: video }); } catch (e) { /* skip frame */ }
+  if (camStream && video.readyState >= 2) {
+    visionTick++;
+    if (handsReady) {
+      try { await handsApi.send({ image: video }); } catch (e) { /* skip frame */ }
+    }
+    // the mouth doesn't need 30fps — check every 3rd frame to stay light
+    if (faceReady && visionTick % 3 === 0) {
+      try { await faceApi.send({ image: video }); } catch (e) { /* skip frame */ }
+    }
   }
   requestAnimationFrame(handLoop);
+}
+
+/* MediaPipe FaceMesh — open your mouth to blow a stream of tiny bubbles */
+function preloadFace() {
+  if (faceApi || preloadFace.loading) return;
+  preloadFace.loading = true;
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.min.js';
+  s.onload = () => {
+    try {
+      faceApi = new FaceMesh({
+        locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`,
+      });
+      faceApi.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: false,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      });
+      faceApi.onResults(onFace);
+      const warm = faceApi.initialize ? faceApi.initialize() : Promise.resolve();
+      Promise.resolve(warm)
+        .then(() => { faceReady = true; })
+        .catch((e) => console.warn('FaceMesh warm-up failed', e));
+    } catch (e) {
+      console.warn('FaceMesh init failed — no mouth bubbles', e);
+    }
+  };
+  s.onerror = () => console.warn('FaceMesh CDN unavailable — no mouth bubbles');
+  document.head.appendChild(s);
+}
+
+function onFace(res) {
+  const lm = res.multiFaceLandmarks && res.multiFaceLandmarks[0];
+  if (!lm) {
+    mouth.open = false;
+    return;
+  }
+  // lip gap (landmarks 13/14) relative to face height (forehead 10 → chin 152)
+  const gap = Math.hypot(lm[13].x - lm[14].x, lm[13].y - lm[14].y);
+  const face = Math.hypot(lm[10].x - lm[152].x, lm[10].y - lm[152].y);
+  mouth.open = face > 0 && gap / face > 0.08;
+  const p = videoToScreen((lm[13].x + lm[14].x) / 2, (lm[13].y + lm[14].y) / 2);
+  mouth.x = p.x;
+  mouth.y = p.y;
 }
 
 /* ───────────────────── CAMERA SETUP ──────────────────────────── */
@@ -711,6 +775,7 @@ function stopCamera() {
   video.classList.remove('live');
   video.srcObject = null;
   pointers = [];
+  mouth.open = false;
 }
 
 /* ─────────────────────── FISH & DUST ─────────────────────────── */
@@ -769,12 +834,40 @@ function update(dt, t) {
   // fingertip popping — works with both hands at once
   for (const p of pointers) popAt(p.x, p.y, 12);
 
+  // open mouth → blow a cluster of tiny bubbles
+  if (mouth.open && camStream) {
+    const now = performance.now();
+    if (now - mouth.lastEmit > 70) {
+      mouth.lastEmit = now;
+      for (let i = 0; i < 3; i++) {
+        particles.push({
+          kind: 'tiny',
+          x: mouth.x + rand(-12, 12),
+          y: mouth.y + rand(-6, 6),
+          vx: rand(-20, 20),
+          vy: rand(-150, -70),
+          r: rand(2, 6.5),
+          life: rand(0.9, 1.7),
+          phase: rand(0, Math.PI * 2),
+        });
+      }
+      if (now - mouth.lastSnd > 550) {
+        mouth.lastSnd = now;
+        snd.blub();
+      }
+    }
+  }
+
   for (const pt of particles) {
     if (pt.kind === 'drop') {
       pt.x += pt.vx * dt;
       pt.y += pt.vy * dt;
       pt.vy -= 140 * dt; // buoyancy — droplets float up
       pt.life -= dt * 1.8;
+    } else if (pt.kind === 'tiny') {
+      pt.x += (pt.vx + Math.sin(pt.phase + pt.life * 7) * 16) * dt;
+      pt.y += pt.vy * dt;
+      pt.life -= dt * 0.9;
     } else {
       pt.r = lerp(pt.r, pt.max, dt * 10);
       pt.life -= dt * 2.6;
@@ -813,6 +906,17 @@ function draw(t) {
       ctx2d.strokeStyle = `rgba(${pt.color},${pt.life * 0.8})`;
       ctx2d.lineWidth = 3;
       ctx2d.stroke();
+    } else if (pt.kind === 'tiny') {
+      const a = clamp(pt.life, 0, 1);
+      ctx2d.beginPath();
+      ctx2d.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
+      ctx2d.strokeStyle = `rgba(255,255,255,${a * 0.8})`;
+      ctx2d.lineWidth = 1.4;
+      ctx2d.stroke();
+      ctx2d.beginPath();
+      ctx2d.arc(pt.x - pt.r * 0.3, pt.y - pt.r * 0.35, pt.r * 0.25, 0, Math.PI * 2);
+      ctx2d.fillStyle = `rgba(255,255,255,${a * 0.7})`;
+      ctx2d.fill();
     } else {
       ctx2d.beginPath();
       ctx2d.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
