@@ -138,14 +138,6 @@ button { font: inherit; cursor: pointer; }
   text-shadow: 2px 10px 6px rgba(0, 0, 0, 0.55);
   line-height: 1;
   will-change: transform;
-  transition: transform 2.1s cubic-bezier(0.22, 0.9, 0.3, 1);
-}
-.letter-stage .fl .wob { display: inline-block; }
-.letter-stage.scattered .fl .wob { animation: letter-wobble 2.6s ease-in-out infinite; }
-
-@keyframes letter-wobble {
-  0%, 100% { transform: translate(0, 0) rotate(-4deg); }
-  50%      { transform: translate(4px, -12px) rotate(4deg); }
 }
 
 /* ───────────────── screen 3 : instruction booklet ─────────────── */
@@ -406,11 +398,14 @@ button { font: inherit; cursor: pointer; }
 }
 .light-rays {
   position: absolute;
-  inset: -30% -10% 30%;
+  inset: -30% -10% 0;
   background:
     linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.14) 45%, transparent 50%),
     linear-gradient(95deg, transparent 58%, rgba(255, 255, 255, 0.1) 63%, transparent 68%),
     linear-gradient(115deg, transparent 74%, rgba(255, 255, 255, 0.12) 78%, transparent 83%);
+  /* dissolve softly into the deep — no visible edge at any screen size */
+  -webkit-mask-image: linear-gradient(180deg, #000 30%, transparent 78%);
+  mask-image: linear-gradient(180deg, #000 30%, transparent 78%);
   animation: rays-sway 9s ease-in-out infinite alternate;
   pointer-events: none;
 }
@@ -667,6 +662,5 @@ button { font: inherit; cursor: pointer; }
 
 /* reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  .letter-stage .fl { transition-duration: 0.4s; }
   .light-rays, .game-title.is-live span { animation: none; }
 }

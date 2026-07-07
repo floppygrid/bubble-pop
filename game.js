@@ -152,46 +152,35 @@ async function playIntro() {
   stage.innerHTML = '';
   const W = window.innerWidth;
   const H = window.innerHeight;
+  const targets = [...homeTitle.children].filter((s) => !s.classList.contains('sp'));
 
-  const letters = WORD.map((ch, i) => {
+  // one continuous journey per letter:
+  // rise from the seabed → drift past its scatter spot → settle into the line
+  const anims = WORD.map((ch, i) => {
     const el = document.createElement('div');
     el.className = 'fl';
-    const inner = document.createElement('span');
-    inner.className = 'wob';
-    inner.textContent = ch;
-    inner.style.animationDelay = -rand(0, 2.6) + 's';
-    el.appendChild(inner);
-    // start: below the screen, roughly under its scatter spot
-    const sx = (SCATTER[i][0] / 1200) * W + rand(-30, 30);
-    el.style.transform = `translate(${sx}px, ${H + 160 + rand(0, 220)}px)`;
-    el.style.transitionDuration = rand(1.7, 2.4) + 's';
-    el.style.transitionDelay = i * 0.09 + 's';
+    el.textContent = ch;
     stage.appendChild(el);
-    return el;
-  });
 
-  // phase 1 — rise from the bottom & stop at scattered spots
-  void stage.offsetHeight; // flush styles so the transition triggers
-  await wait(60);
-  letters.forEach((el, i) => {
-    const x = (SCATTER[i][0] / 1200) * W;
-    const y = (SCATTER[i][1] / 896) * H * 0.92;
-    el.style.transform = `translate(${x}px, ${y}px)`;
-  });
-  await wait(2500);
-  stage.classList.add('scattered'); // gentle wobble while "thinking"
-  await wait(1500);
-
-  // phase 2 — glide into one line, forming the name
-  stage.classList.remove('scattered');
-  const targets = [...homeTitle.children].filter((s) => !s.classList.contains('sp'));
-  letters.forEach((el, i) => {
+    const sx = (SCATTER[i][0] / 1200) * W + rand(-30, 30);
+    const sy = H + 140 + rand(0, 140);
+    const mx = (SCATTER[i][0] / 1200) * W;
+    const my = (SCATTER[i][1] / 896) * H * 0.9;
     const r = targets[i].getBoundingClientRect();
-    el.style.transitionDuration = '1.6s';
-    el.style.transitionDelay = i * 0.05 + 's';
-    el.style.transform = `translate(${r.left}px, ${r.top}px)`;
+
+    const anim = el.animate(
+      [
+        { transform: `translate(${sx}px, ${sy}px) rotate(${rand(-14, 14)}deg)`, easing: 'cubic-bezier(0.25, 0.8, 0.45, 1)' },
+        { transform: `translate(${mx}px, ${my}px) rotate(${rand(-8, 8)}deg)`, offset: 0.45, easing: 'ease-in-out' },
+        { transform: `translate(${mx + rand(-16, 16)}px, ${my - 12}px) rotate(${rand(-6, 6)}deg)`, offset: 0.62, easing: 'cubic-bezier(0.5, 0, 0.25, 1)' },
+        { transform: `translate(${r.left}px, ${r.top}px) rotate(0deg)` },
+      ],
+      { duration: 2600, delay: i * 65, fill: 'both' }
+    );
+    return anim.finished.catch(() => {});
   });
-  await wait(2200);
+
+  await Promise.all(anims);
 
   // hand over to the real title
   homeTitle.classList.add('is-live');
@@ -498,7 +487,11 @@ function preloadHands() {
         minTrackingConfidence: 0.5,
       });
       handsApi.onResults(onHands);
-      handsReady = true;
+      // warm the model now so tracking is instant when the camera opens
+      const warm = handsApi.initialize ? handsApi.initialize() : Promise.resolve();
+      Promise.resolve(warm)
+        .then(() => { handsReady = true; })
+        .catch((e) => console.warn('Hands warm-up failed — touch mode only', e));
     } catch (e) {
       console.warn('Hands init failed — touch mode only', e);
     }
@@ -597,7 +590,8 @@ function spawnFish() {
   const dir = Math.random() < 0.5 ? 1 : -1;
   f.style.fontSize = rand(20, 44) + 'px';
   f.style.top = rand(12, 70) + 'vh';
-  f.style.setProperty('--fdir', dir);
+  // emoji sea creatures face LEFT by default — flip them when swimming right
+  f.style.setProperty('--fdir', dir === 1 ? -1 : 1);
   f.style.setProperty('--fx0', (dir === 1 ? -15 : 115) + 'vw');
   f.style.setProperty('--fx1', (dir === 1 ? 115 : -15) + 'vw');
   f.style.setProperty('--fy1', rand(-8, 8) + 'vh');
@@ -638,8 +632,8 @@ function update(dt, t) {
   }
   bubbles = bubbles.filter((b) => !b.popped && b.y > -b.r - 40);
 
-  // fingertip popping
-  for (const p of pointers) popAt(p.x, p.y, 4);
+  // fingertip popping — works with both hands at once
+  for (const p of pointers) popAt(p.x, p.y, 12);
 
   for (const pt of particles) {
     if (pt.kind === 'drop') {
@@ -706,7 +700,11 @@ function draw(t) {
     ctx2d.shadowBlur = 0;
   }
 
-  // fingertip cursors
+  drawCursors();
+}
+
+/** Glowing fingertip cursors — one per detected hand. */
+function drawCursors() {
   for (const p of pointers) {
     const g = ctx2d.createRadialGradient(p.x, p.y, 2, p.x, p.y, 26);
     g.addColorStop(0, 'rgba(255,255,255,0.9)');
@@ -738,11 +736,23 @@ function frame(now) {
 async function countdown() {
   const el = $('#countdown');
   el.hidden = false;
+
+  // show fingertip cursors during the countdown so players can see
+  // hand tracking is live before the bubbles arrive
+  let preview = true;
+  (function previewLoop() {
+    if (!preview) return;
+    ctx2d.clearRect(0, 0, W, H);
+    drawCursors();
+    requestAnimationFrame(previewLoop);
+  })();
+
   for (const n of ['3', '2', '1', 'GO!']) {
     el.innerHTML = `<span>${n}</span>`;
     snd.count(n === 'GO!');
     await wait(n === 'GO!' ? 700 : 850);
   }
+  preview = false;
   el.hidden = true;
 }
 
@@ -851,7 +861,7 @@ $('#hudBest').textContent = getBest();
 
 // wait for the scribble font so the letters render correctly, then play
 if (document.fonts && document.fonts.ready) {
-  Promise.race([document.fonts.ready, wait(1800)]).then(() => playIntro());
+  Promise.race([document.fonts.ready, wait(900)]).then(() => playIntro());
 } else {
   playIntro();
 }
