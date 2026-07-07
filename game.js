@@ -588,7 +588,7 @@ function spawnFish() {
   f.className = 'fish';
   f.textContent = FISH[(Math.random() * FISH.length) | 0];
   const dir = Math.random() < 0.5 ? 1 : -1;
-  f.style.fontSize = rand(20, 44) + 'px';
+  f.style.fontSize = rand(26, 57) + 'px';
   f.style.top = rand(12, 70) + 'vh';
   // emoji sea creatures face LEFT by default — flip them when swimming right
   f.style.setProperty('--fdir', dir === 1 ? -1 : 1);
@@ -690,7 +690,7 @@ function draw(t) {
   ctx2d.textAlign = 'center';
   ctx2d.textBaseline = 'middle';
   for (const tx of texts) {
-    ctx2d.font = `${clamp(W * 0.045, 22, 34)}px 'Alfa Slab One', serif`;
+    ctx2d.font = `${clamp(W * 0.03, 14, 22)}px 'Press Start 2P', monospace`;
     ctx2d.fillStyle = tx.color;
     ctx2d.globalAlpha = clamp(tx.life, 0, 1);
     ctx2d.shadowColor = 'rgba(0,0,0,0.5)';

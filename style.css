@@ -64,19 +64,19 @@ button { font: inherit; cursor: pointer; }
   background: var(--candy);
   border: 2px solid #fff;
   border-radius: 10px;
-  padding: 12px 26px;
-  font-family: 'Alfa Slab One', serif;
-  font-size: clamp(18px, 2.6vw, 24px);
+  padding: 15px 26px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: clamp(12px, 2vw, 17px);
+  line-height: 1.4;
   color: #fff;
-  text-shadow: 0 4px 6px var(--candy-deep);
+  text-shadow: 0 3px 4px var(--candy-deep);
   box-shadow: 0 8px 30px 2px rgba(0, 0, 0, 0.25);
   transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.5s ease;
-  letter-spacing: 0.5px;
 }
 .btn-candy:hover { transform: translateY(-3px) scale(1.04); box-shadow: 0 12px 34px 4px rgba(0, 0, 0, 0.3); }
 .btn-candy:active { transform: translateY(1px) scale(0.97); }
 .btn-candy.btn-ghost { background: rgba(255, 255, 255, 0.25); text-shadow: 0 3px 5px rgba(0, 0, 0, 0.4); }
-.btn-candy.btn-small { font-size: 15px; padding: 9px 18px; }
+.btn-candy.btn-small { font-size: 11px; padding: 11px 16px; }
 
 /* ───────────────────── screen 1-2 : home ─────────────────────── */
 
@@ -184,7 +184,7 @@ button { font: inherit; cursor: pointer; }
 }
 .manual-head-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .manual-kicker { font-family: 'Press Start 2P', monospace; font-size: clamp(7px, 1.4vw, 10px); letter-spacing: 1px; opacity: 0.9; }
-.manual-title { font-family: 'Alfa Slab One', serif; font-size: clamp(20px, 3.4vw, 30px); line-height: 1; }
+.manual-title { font-family: 'Press Start 2P', monospace; font-size: clamp(14px, 2.4vw, 21px); line-height: 1.2; }
 .manual-page { margin-left: auto; font-family: 'Press Start 2P', monospace; font-size: clamp(7px, 1.4vw, 10px); opacity: 0.85; flex: none; }
 
 .manual-body {
@@ -271,7 +271,7 @@ button { font: inherit; cursor: pointer; }
   background: #fff8ea;
 }
 .best-label { display: block; font-family: 'Press Start 2P', monospace; font-size: clamp(7px, 1.2vw, 9px); color: var(--nintendo-red); letter-spacing: 1px; }
-.best-value { font-family: 'Alfa Slab One', serif; font-size: clamp(26px, 4vw, 38px); color: var(--ink); line-height: 1.2; }
+.best-value { font-family: 'Press Start 2P', monospace; font-size: clamp(17px, 2.8vw, 26px); color: var(--ink); line-height: 1.5; }
 
 /* right panel — steps */
 .manual-h2 {
@@ -314,11 +314,12 @@ button { font: inherit; cursor: pointer; }
 }
 .tag {
   display: inline-block;
-  font-family: 'Alfa Slab One', serif;
-  font-size: 0.8em;
-  padding: 0 7px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.62em;
+  padding: 3px 6px;
   border-radius: 6px;
   color: #fff;
+  vertical-align: middle;
 }
 .tag-good { background: var(--good); }
 .tag-bad { background: var(--bad); }
@@ -385,7 +386,16 @@ button { font: inherit; cursor: pointer; }
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(64, 160, 199, 0.34) 0%, rgba(23, 94, 128, 0.42) 60%, rgba(8, 46, 66, 0.62) 100%);
+    /* corner vignette — draws the eye to the player in the middle */
+    radial-gradient(130% 130% at 50% 42%, transparent 48%, rgba(3, 18, 34, 0.62) 100%),
+    /* sunlit surface above, deep blue below */
+    linear-gradient(
+      180deg,
+      rgba(190, 235, 250, 0.16) 0%,
+      rgba(90, 170, 205, 0.26) 35%,
+      rgba(28, 100, 145, 0.45) 68%,
+      rgba(6, 38, 72, 0.72) 100%
+    );
   mix-blend-mode: multiply;
   pointer-events: none;
 }
@@ -400,9 +410,9 @@ button { font: inherit; cursor: pointer; }
   position: absolute;
   inset: -30% -10% 0;
   background:
-    linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.14) 45%, transparent 50%),
-    linear-gradient(95deg, transparent 58%, rgba(255, 255, 255, 0.1) 63%, transparent 68%),
-    linear-gradient(115deg, transparent 74%, rgba(255, 255, 255, 0.12) 78%, transparent 83%);
+    linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.2) 45%, transparent 50%),
+    linear-gradient(95deg, transparent 58%, rgba(255, 255, 255, 0.15) 63%, transparent 68%),
+    linear-gradient(115deg, transparent 74%, rgba(255, 255, 255, 0.17) 78%, transparent 83%);
   /* dissolve softly into the deep — no visible edge at any screen size */
   -webkit-mask-image: linear-gradient(180deg, #000 30%, transparent 78%);
   mask-image: linear-gradient(180deg, #000 30%, transparent 78%);
@@ -484,10 +494,10 @@ button { font: inherit; cursor: pointer; }
   letter-spacing: 1px;
 }
 .hud-value {
-  font-family: 'Alfa Slab One', serif;
-  font-size: clamp(17px, 3.4vw, 26px);
+  font-family: 'Press Start 2P', monospace;
+  font-size: clamp(13px, 2.8vw, 20px);
   color: #fff;
-  line-height: 1;
+  line-height: 1.2;
   min-width: 2ch;
   text-align: center;
   text-shadow: 0 3px 4px rgba(0, 0, 0, 0.5);
@@ -521,8 +531,8 @@ button { font: inherit; cursor: pointer; }
   inset: 0;
   display: grid;
   place-items: center;
-  font-family: 'Alfa Slab One', serif;
-  font-size: clamp(90px, 22vw, 200px);
+  font-family: 'Press Start 2P', monospace;
+  font-size: clamp(56px, 15vw, 130px);
   color: #fff;
   text-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
   z-index: 7;
@@ -631,7 +641,7 @@ button { font: inherit; cursor: pointer; }
   gap: 2px;
 }
 .go-box span { font-family: 'Press Start 2P', monospace; font-size: 8px; color: var(--ink); }
-.go-box b { font-family: 'Alfa Slab One', serif; font-size: clamp(24px, 5vw, 34px); color: var(--ink); }
+.go-box b { font-family: 'Press Start 2P', monospace; font-size: clamp(15px, 3.4vw, 22px); line-height: 1.6; color: var(--ink); }
 .go-record {
   margin-top: 12px;
   font-family: 'Press Start 2P', monospace;
