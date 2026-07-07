@@ -1,533 +1,857 @@
-// ===== Bubble Pop — underwater O₂ survival (hand-tracking) =====
-//
-// The aquarium background image (from the Figma design) is shown on every
-// screen via CSS; this canvas is a TRANSPARENT overlay that only draws the
-// game entities (bubbles, jellyfish, cursor, effects). The webcam runs hidden
-// and is used solely for MediaPipe hand tracking.
-//
-// Goal: pop rising O₂ bubbles to refill an oxygen meter that constantly
-// drains. Avoid jellyfish — popping 3 ends the game, as does running out
-// of O₂. Difficulty (rise speed + spawn rate) ramps up over time.
+/* ══════════════════════════════════════════════════════════════
+   BUBBLE PoP — game.js
+   Screens:  home (floating letters) → instructions → game
+   Popping:  hand-tracking fingertips (MediaPipe Hands) + touch/click
+   ══════════════════════════════════════════════════════════════ */
+'use strict';
 
-// ---------- DOM ----------
-const video    = document.getElementById('video');
-const canvas   = document.getElementById('canvas');
-const ctx      = canvas.getContext('2d');
-const hud      = document.getElementById('hud');
-const o2Fill   = document.getElementById('o2Fill');
-const strikeEls= [...document.querySelectorAll('.strike')];
-const muteBtn  = document.getElementById('muteBtn');
-const pauseBtn = document.getElementById('pauseBtn');
+const $ = (s) => document.querySelector(s);
+const rand = (a, b) => a + Math.random() * (b - a);
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const startScreen  = document.getElementById('startScreen');
-const instructions = document.getElementById('instructions');
-const gameover     = document.getElementById('gameover');
-const startBtn     = document.getElementById('startBtn');
-const letsGoBtn    = document.getElementById('letsGoBtn');
-const playAgainBtn = document.getElementById('playAgainBtn');
-const statusEl     = document.getElementById('status');
-const goReason     = document.getElementById('goReason');
-const goTime       = document.getElementById('goTime');
-const goBest       = document.getElementById('goBest');
+const BEST_KEY = 'bubblepop.best';
+const getBest = () => Number(localStorage.getItem(BEST_KEY) || 0);
 
-// ---------- Canvas coordinate space (matches the 1200x896 Figma frame) ----------
-const W = 1200, H = 896;
-canvas.width = W; canvas.height = H;
+/* ────────────────────────── AUDIO ────────────────────────────── */
 
-// ---------- State machine ----------
-const S = { START: 'start', INSTRUCT: 'instruct', PLAYING: 'playing',
-            PAUSED: 'paused', WAVE: 'wave', GAMEOVER: 'gameover' };
-let state = S.START;
+let actx = null;
+let muted = false;
 
-// ---------- Tunables ----------
-const O2_MAX     = 100;
-const O2_REFILL  = 14;     // gained per O₂ bubble
-const O2_PENALTY = 12;     // lost per jellyfish sting
-const MAX_STRIKES= 3;
-
-// Bubbles 20% bigger; initial rise speed 20% faster than the first build.
-const O2_R_MIN = 46, O2_R_VAR = 18;   // radius 46..64
-const JELLY_R_MIN = 46, JELLY_R_VAR = 16;
-const BASE_SPEED = 108;               // px/s at difficulty 1.0
-
-// Difficulty ramp — speeds the rise, spawns, and O₂ drain over time.
-function difficulty()   { return 1 + Math.min(elapsed / 25, 3.5); }     // 1.0 -> ~4.5
-function riseSpeed()    { return BASE_SPEED * difficulty(); }
-function spawnInterval(){ return Math.max(0.40, 1.05 - elapsed * 0.012); }
-function o2Drain()      { return 5.5 + difficulty() * 2.0; }            // per second
-function jellyChance()  { return 0.18 + Math.min(elapsed * 0.003, 0.17); } // 0.18 -> 0.35
-
-// ---------- Round vars ----------
-let o2 = O2_MAX, strikes = 0, elapsed = 0, survived = 0;
-let bestTime = Number(localStorage.getItem('bubblepop_best_time') || 0);
-let lastTime = 0, tNow = 0, spawnTimer = 0, lowO2Timer = 0;
-let muted = false, cameraStarted = false;
-let goReasonKind = 'o2';
-
-// ---------- Entity pools ----------
-const bubbles   = [];   // O₂ bubbles + jellyfish
-const floats    = [];   // floating "+O₂" / "Sting!" text
-const particles = [];   // pop burst
-let   cursors   = [];    // fingertip positions (per detected hand)
-
-// Ambient background bubbles (subtle motion on every screen).
-const ambient = Array.from({ length: 24 }, () => ({
-  x: Math.random() * W, y: Math.random() * H,
-  r: 2 + Math.random() * 6, sp: 16 + Math.random() * 42, ph: Math.random() * 7,
-}));
-
-// Game-over wave.
-let waveTop = H, waveCols = [];
-
-// ============================================================
-//  SPAWNING
-// ============================================================
-function spawnEntity() {
-  if (Math.random() < jellyChance()) spawnJelly();
-  else spawnBubble();
+function audio() {
+  if (!actx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    actx = new AC();
+  }
+  if (actx.state === 'suspended') actx.resume();
+  return actx;
 }
+
+function tone(f0, f1, dur, { type = 'sine', gain = 0.18, at = 0 } = {}) {
+  const ctx = audio();
+  if (!ctx || muted) return;
+  const t0 = ctx.currentTime + at;
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(f0, t0);
+  osc.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t0 + dur);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(gain, t0 + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(g).connect(ctx.destination);
+  osc.start(t0);
+  osc.stop(t0 + dur + 0.05);
+}
+
+function splash(dur = 0.5, { gain = 0.12, f = 900, at = 0 } = {}) {
+  const ctx = audio();
+  if (!ctx || muted) return;
+  const t0 = ctx.currentTime + at;
+  const len = Math.floor(ctx.sampleRate * dur);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.setValueAtTime(f, t0);
+  bp.frequency.exponentialRampToValueAtTime(f * 2.2, t0 + dur);
+  bp.Q.value = 1.2;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(gain, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  src.connect(bp).connect(g).connect(ctx.destination);
+  src.start(t0);
+}
+
+const snd = {
+  pop() {
+    const p = rand(0.85, 1.25);
+    tone(320 * p, 780 * p, 0.09, { gain: 0.22 });
+    splash(0.08, { gain: 0.1, f: 1600 });
+  },
+  jelly() {
+    tone(240, 55, 0.5, { type: 'sawtooth', gain: 0.16 });
+    tone(180, 45, 0.55, { type: 'square', gain: 0.07, at: 0.03 });
+    splash(0.35, { gain: 0.1, f: 300 });
+  },
+  gift() {
+    [660, 880, 1175].forEach((f, i) => tone(f, f, 0.14, { type: 'triangle', gain: 0.16, at: i * 0.08 }));
+  },
+  life() {
+    [523, 659, 784, 1047].forEach((f, i) => tone(f, f, 0.2, { type: 'triangle', gain: 0.15, at: i * 0.09 }));
+  },
+  click() {
+    tone(500, 700, 0.08, { type: 'triangle', gain: 0.15 });
+  },
+  count(go) {
+    tone(go ? 880 : 520, go ? 880 : 520, go ? 0.35 : 0.12, { type: 'square', gain: 0.1 });
+  },
+  over() {
+    [392, 330, 262, 175].forEach((f, i) => tone(f, f * 0.97, 0.3, { type: 'triangle', gain: 0.16, at: i * 0.22 }));
+  },
+  wash() {
+    splash(1.1, { gain: 0.16, f: 500 });
+  },
+};
+
+/* ─────────────────── SCREENS & BUBBLE WASH ───────────────────── */
+
+const screens = {
+  home: $('#screen-home'),
+  instructions: $('#screen-instructions'),
+  game: $('#screen-game'),
+};
+
+function showScreen(name) {
+  Object.values(screens).forEach((s) => s.classList.remove('is-active'));
+  screens[name].classList.add('is-active');
+}
+
+/** Full-screen rising bubble cluster; swaps content while covered. */
+function bubbleWash(midSwap) {
+  return new Promise((resolve) => {
+    const layer = $('#bubbleWash');
+    layer.innerHTML = '';
+    const n = Math.round(clamp(window.innerWidth / 26, 34, 60));
+    for (let i = 0; i < n; i++) {
+      const b = document.createElement('div');
+      b.className = 'wb';
+      const size = rand(9, 24);
+      b.style.width = b.style.height = size + 'vmin';
+      b.style.left = rand(-8, 100) + 'vw';
+      b.style.setProperty('--wd', rand(1.25, 1.8) + 's');
+      b.style.setProperty('--wdel', rand(0, 0.4) + 's');
+      layer.appendChild(b);
+    }
+    snd.wash();
+    setTimeout(() => { midSwap && midSwap(); }, 750);
+    setTimeout(() => { layer.innerHTML = ''; resolve(); }, 2300);
+  });
+}
+
+/* ──────────────── SCREEN 1-2 : FLOATING LETTERS ──────────────── */
+
+// Scatter spots from the Figma "Loading Animation" frame (1200×896 canvas)
+const SCATTER = [
+  [210, 196], [299, 264], [423, 634], [484, 60], [580, 566],
+  [619, 347], [744, 347], [795, 473], [879, 240],
+];
+const WORD = ['B', 'u', 'b', 'b', 'l', 'e', 'P', 'o', 'P'];
+
+const homeTitle = $('#homeTitle');
+const letterStage = $('#letterStage');
+let introPlayed = false;
+
+async function playIntro() {
+  const stage = letterStage;
+  stage.innerHTML = '';
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+
+  const letters = WORD.map((ch, i) => {
+    const el = document.createElement('div');
+    el.className = 'fl';
+    const inner = document.createElement('span');
+    inner.className = 'wob';
+    inner.textContent = ch;
+    inner.style.animationDelay = -rand(0, 2.6) + 's';
+    el.appendChild(inner);
+    // start: below the screen, roughly under its scatter spot
+    const sx = (SCATTER[i][0] / 1200) * W + rand(-30, 30);
+    el.style.transform = `translate(${sx}px, ${H + 160 + rand(0, 220)}px)`;
+    el.style.transitionDuration = rand(1.7, 2.4) + 's';
+    el.style.transitionDelay = i * 0.09 + 's';
+    stage.appendChild(el);
+    return el;
+  });
+
+  // phase 1 — rise from the bottom & stop at scattered spots
+  void stage.offsetHeight; // flush styles so the transition triggers
+  await wait(60);
+  letters.forEach((el, i) => {
+    const x = (SCATTER[i][0] / 1200) * W;
+    const y = (SCATTER[i][1] / 896) * H * 0.92;
+    el.style.transform = `translate(${x}px, ${y}px)`;
+  });
+  await wait(2500);
+  stage.classList.add('scattered'); // gentle wobble while "thinking"
+  await wait(1500);
+
+  // phase 2 — glide into one line, forming the name
+  stage.classList.remove('scattered');
+  const targets = [...homeTitle.children].filter((s) => !s.classList.contains('sp'));
+  letters.forEach((el, i) => {
+    const r = targets[i].getBoundingClientRect();
+    el.style.transitionDuration = '1.6s';
+    el.style.transitionDelay = i * 0.05 + 's';
+    el.style.transform = `translate(${r.left}px, ${r.top}px)`;
+  });
+  await wait(2200);
+
+  // hand over to the real title
+  homeTitle.classList.add('is-live');
+  stage.innerHTML = '';
+  revealHomeUi();
+  introPlayed = true;
+}
+
+function revealHomeUi() {
+  homeTitle.classList.add('is-live');
+  $('#homeTagline').classList.add('shown');
+  $('#btnStart').classList.add('shown');
+}
+
+/* ─────────────── SCREEN 3 : INSTRUCTIONS ─────────────────────── */
+
+function openInstructions() {
+  const best = getBest();
+  const box = $('#bestScoreBox');
+  if (best > 0) {
+    box.hidden = false;
+    $('#bestScoreManual').textContent = best;
+  } else {
+    box.hidden = true;
+  }
+  preloadHands(); // warm the hand-tracking model while the player reads
+  showScreen('instructions');
+}
+
+/* ─────────────────────── GAME STATE ──────────────────────────── */
+
+const canvas = $('#gameCanvas');
+const ctx2d = canvas.getContext('2d');
+const video = $('#cam');
+const fishLayer = $('#fishLayer');
+
+let W = 0, H = 0, DPR = 1;
+let running = false;
+let rafId = 0;
+let lastT = 0;
+let elapsed = 0;
+let spawnTimer = 0;
+let score = 0;
+let lives = 3;
+const MAX_LIVES = 5;
+let bubbles = [];
+let particles = [];
+let texts = [];
+let dust = [];
+let pointers = [];       // smoothed fingertip cursors
+let camStream = null;
+let fishTimer = 0;
+let handsApi = null;
+let handsReady = false;
+let handLoopOn = false;
+
+function resizeCanvas() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * DPR;
+  canvas.height = H * DPR;
+  ctx2d.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resizeCanvas);
+
+/* ─────────────────── DIFFICULTY CURVE ────────────────────────── */
+
+function difficulty() {
+  const ramp = clamp(elapsed / 100, 0, 1);          // 0 → 1 over 100 s
+  const jelly = lerp(0.20, 0.40, ramp);             // 20 % → 40 %
+  return {
+    jelly,
+    gift: 0.09,
+    life: 0.01,
+    o2: 1 - jelly - 0.10,
+    speed: lerp(1, 2.15, clamp(elapsed / 90, 0, 1)) + Math.max(0, elapsed - 90) * 0.003,
+    spawnMs: lerp(1050, 440, clamp(elapsed / 90, 0, 1)),
+  };
+}
+
+/* ────────────────────── BUBBLES ──────────────────────────────── */
+
+const JELLY_TINTS = [
+  [255, 150, 200], // pink
+  [140, 195, 255], // blue
+  [255, 255, 255], // deceptive white
+];
 
 function spawnBubble() {
-  const r = O2_R_MIN + Math.random() * O2_R_VAR;
+  if (bubbles.length > 26) return;
+  const d = difficulty();
+  const roll = Math.random();
+  let type;
+  if (roll < d.o2) type = 'o2';
+  else if (roll < d.o2 + d.jelly) type = 'jelly';
+  else if (roll < d.o2 + d.jelly + d.gift) type = 'gift';
+  else type = 'life';
+
+  const vmin = Math.min(W, H);
+  const r = clamp(rand(0.05, 0.085) * vmin, 26, 74);
   bubbles.push({
-    kind: 'o2',
-    x: r + Math.random() * (W - r * 2), y: H + r,
-    r, vy: riseSpeed() * (0.8 + Math.random() * 0.55),
-    wobAmp: 12 + Math.random() * 26, wobFreq: 0.6 + Math.random() * 1.2,
-    ph: Math.random() * 7, popped: false, pop: 0,
+    type,
+    x: rand(r + 6, W - r - 6),
+    y: H + r + 10,
+    r,
+    vy: (0.11 * H + rand(-14, 22)) * d.speed,
+    phase: rand(0, Math.PI * 2),
+    wobAmp: rand(8, 26),
+    wobSpd: rand(0.9, 1.7),
+    tint: JELLY_TINTS[(Math.random() * JELLY_TINTS.length) | 0],
+    giftValue: Math.random() < 0.6 ? 10 : 25,
+    popped: false,
   });
 }
 
-function spawnJelly() {
-  const r = JELLY_R_MIN + Math.random() * JELLY_R_VAR;
-  const hues = [300, 285, 330, 195];
-  bubbles.push({
-    kind: 'jelly',
-    x: r + Math.random() * (W - r * 2), y: H + r,
-    r, vy: riseSpeed() * (0.5 + Math.random() * 0.35),
-    wobAmp: 18 + Math.random() * 24, wobFreq: 0.4 + Math.random() * 0.8,
-    ph: Math.random() * 7, hue: hues[(Math.random() * hues.length) | 0],
-    popped: false, pop: 0,
-  });
+function drawBubbleBase(b, fill) {
+  const g = ctx2d.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.4, b.r * 0.1, b.x, b.y, b.r);
+  g.addColorStop(0, `rgba(255,255,255,${fill + 0.22})`);
+  g.addColorStop(0.55, `rgba(255,255,255,${fill})`);
+  g.addColorStop(1, `rgba(255,255,255,${fill * 0.35})`);
+  ctx2d.beginPath();
+  ctx2d.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+  ctx2d.fillStyle = g;
+  ctx2d.fill();
+  ctx2d.lineWidth = 2;
+  ctx2d.strokeStyle = 'rgba(255,255,255,0.75)';
+  ctx2d.stroke();
+  // glossy highlight
+  ctx2d.beginPath();
+  ctx2d.ellipse(b.x - b.r * 0.35, b.y - b.r * 0.42, b.r * 0.22, b.r * 0.13, -0.6, 0, Math.PI * 2);
+  ctx2d.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx2d.fill();
 }
 
-// ============================================================
-//  POPPING + COLLISION
-// ============================================================
-function pop(b) {
-  if (b.popped) return;
-  b.popped = true; b.pop = 1;
-
-  if (b.kind === 'o2') {
-    o2 = Math.min(O2_MAX, o2 + O2_REFILL);
-    floats.push({ x: b.x, y: b.y, text: '+O₂', color: '#7CFFB0', life: 1 });
-    burst(b.x, b.y, 'rgba(150,240,255,0.95)');
-    playPop();
+function drawBubble(b, t) {
+  ctx2d.save();
+  if (b.type === 'o2') {
+    drawBubbleBase(b, 0.26);
+    ctx2d.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx2d.font = `${Math.round(b.r * 0.62)}px 'Alfa Slab One', serif`;
+    ctx2d.textAlign = 'center';
+    ctx2d.textBaseline = 'middle';
+    ctx2d.shadowColor = 'rgba(30,106,134,0.6)';
+    ctx2d.shadowBlur = 6;
+    ctx2d.fillText('O₂', b.x, b.y + b.r * 0.05);
+  } else if (b.type === 'jelly') {
+    const [cr, cg, cb] = b.tint;
+    // tentacles first (peek from under the bubble)
+    ctx2d.strokeStyle = `rgba(${cr},${cg},${cb},0.4)`;
+    ctx2d.lineWidth = 2.4;
+    ctx2d.lineCap = 'round';
+    for (let i = -1.5; i <= 1.5; i++) {
+      const tx = b.x + i * b.r * 0.32;
+      ctx2d.beginPath();
+      ctx2d.moveTo(tx, b.y + b.r * 0.72);
+      const sway = Math.sin(t * 3 + b.phase + i) * b.r * 0.16;
+      ctx2d.quadraticCurveTo(tx + sway, b.y + b.r * 1.15, tx - sway * 0.6, b.y + b.r * 1.5);
+      ctx2d.stroke();
+    }
+    drawBubbleBase(b, 0.14);
+    // sneaky colour glow inside
+    const g = ctx2d.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r * 0.85);
+    g.addColorStop(0, `rgba(${cr},${cg},${cb},0.34)`);
+    g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+    ctx2d.beginPath();
+    ctx2d.arc(b.x, b.y, b.r * 0.85, 0, Math.PI * 2);
+    ctx2d.fillStyle = g;
+    ctx2d.fill();
+    // faint little eyes — look closely!
+    ctx2d.fillStyle = 'rgba(60,60,90,0.35)';
+    ctx2d.beginPath();
+    ctx2d.arc(b.x - b.r * 0.2, b.y + b.r * 0.05, b.r * 0.05, 0, Math.PI * 2);
+    ctx2d.arc(b.x + b.r * 0.2, b.y + b.r * 0.05, b.r * 0.05, 0, Math.PI * 2);
+    ctx2d.fill();
   } else {
-    strikes++;
-    o2 = Math.max(0, o2 - O2_PENALTY);
-    floats.push({ x: b.x, y: b.y, text: 'Sting!', color: '#ff8cc0', life: 1 });
-    burst(b.x, b.y, `hsla(${b.hue},90%,80%,0.95)`);
-    playCry();
-    if (strikes >= MAX_STRIKES) return gameOver('jelly');
+    drawBubbleBase(b, 0.18);
+    ctx2d.font = `${Math.round(b.r * 0.95)}px system-ui`;
+    ctx2d.textAlign = 'center';
+    ctx2d.textBaseline = 'middle';
+    ctx2d.fillText(b.type === 'gift' ? '🎁' : '💖', b.x, b.y + b.r * 0.06);
   }
+  ctx2d.restore();
 }
 
-function burst(x, y, color) {
-  for (let i = 0; i < 16; i++) {
-    const a = (Math.PI * 2 * i) / 16;
+/* ──────────────────── POP EFFECTS ────────────────────────────── */
+
+function burst(x, y, r, color) {
+  particles.push({ kind: 'ring', x, y, r: r * 0.6, max: r * 1.9, life: 1, color });
+  const n = 10;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + rand(-0.2, 0.2);
+    const sp = rand(90, 260);
     particles.push({
-      x, y, vx: Math.cos(a) * (90 + Math.random() * 140),
-      vy: Math.sin(a) * (90 + Math.random() * 140),
-      r: 2 + Math.random() * 4, color, life: 1,
+      kind: 'drop', x, y,
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60,
+      r: rand(2, 5.5), life: 1, color,
     });
   }
 }
 
-function checkPops() {
-  if (!cursors.length) return;
-  for (const b of bubbles) {
-    if (b.popped) continue;
-    for (const c of cursors) {
-      const dx = c.x - b.x, dy = c.y - b.y;
-      if (dx * dx + dy * dy <= (b.r + 16) ** 2) { pop(b); break; }
-    }
+function floatText(x, y, txt, color) {
+  texts.push({ x, y, txt, color, life: 1 });
+}
+
+function bumpHud(el) {
+  el.classList.remove('bump');
+  void el.offsetWidth;
+  el.classList.add('bump');
+}
+
+function popBubble(b) {
+  if (b.popped) return;
+  b.popped = true;
+
+  if (b.type === 'o2') {
+    score += 5;
+    snd.pop();
+    burst(b.x, b.y, b.r, '255,255,255');
+    floatText(b.x, b.y, '+5', '#ffffff');
+  } else if (b.type === 'jelly') {
+    lives--;
+    snd.jelly();
+    burst(b.x, b.y, b.r, `${b.tint[0]},${b.tint[1]},${b.tint[2]}`);
+    skullFlash();
+    renderLives();
+    if (lives <= 0) { endGame(); return; }
+  } else if (b.type === 'gift') {
+    score += b.giftValue;
+    snd.gift();
+    burst(b.x, b.y, b.r, '255,215,130');
+    floatText(b.x, b.y, '+' + b.giftValue, '#ffd982');
+  } else {
+    lives = Math.min(MAX_LIVES, lives + 1);
+    snd.life();
+    burst(b.x, b.y, b.r, '255,150,190');
+    floatText(b.x, b.y, '+1 ♥', '#ff9ec2');
+    renderLives(true);
+  }
+  $('#hudScore').textContent = score;
+  bumpHud($('#hudScore'));
+}
+
+function skullFlash() {
+  const el = $('#skullFlash');
+  el.hidden = false;
+  el.style.animation = 'none';
+  el.querySelector('.skull').style.animation = 'none';
+  void el.offsetWidth;
+  el.style.animation = '';
+  el.querySelector('.skull').style.animation = '';
+  clearTimeout(skullFlash.t);
+  skullFlash.t = setTimeout(() => { el.hidden = true; }, 700);
+}
+
+function renderLives(gained) {
+  const wrap = $('#hudLives');
+  const slots = Math.max(3, lives);
+  wrap.innerHTML = '';
+  for (let i = 0; i < slots; i++) {
+    const s = document.createElement('span');
+    s.className = 'heart' + (i >= lives ? ' lost' : '');
+    if (gained && i === lives - 1) s.classList.add('gain');
+    s.textContent = i >= lives ? '🖤' : '❤️';
+    wrap.appendChild(s);
   }
 }
 
-// ============================================================
-//  UPDATE
-// ============================================================
-function updatePlay(dt) {
-  elapsed += dt;
-  survived = elapsed;
+/* ─────────────────── INPUT : TOUCH & HANDS ───────────────────── */
 
-  // O₂ constantly drains.
-  o2 -= o2Drain() * dt;
-  if (o2 <= 0) { o2 = 0; updateHud(); return gameOver('o2'); }
-
-  // Low-O₂ warning beep.
-  if (o2 < 25) { lowO2Timer -= dt; if (lowO2Timer <= 0) { playWarn(); lowO2Timer = 0.7; } }
-
-  // Spawn.
-  spawnTimer -= dt;
-  if (spawnTimer <= 0) { spawnEntity(); spawnTimer = spawnInterval(); }
-
-  // Move entities upward with a gentle horizontal wobble.
-  for (const b of bubbles) {
-    if (b.popped) { b.pop -= dt * 4; continue; }
-    b.ph += dt;
-    b.y -= b.vy * dt;
-    b.x += Math.cos(b.ph * b.wobFreq) * b.wobAmp * dt;
-  }
-  checkPops();
-
-  // Cull popped / off the top.
+function popAt(x, y, slack = 12) {
   for (let i = bubbles.length - 1; i >= 0; i--) {
     const b = bubbles[i];
-    if ((b.popped && b.pop <= 0) || b.y + b.r < -10) bubbles.splice(i, 1);
-  }
-  updateFloatsParticles(dt);
-}
-
-function updateFloatsParticles(dt) {
-  for (let i = floats.length - 1; i >= 0; i--) {
-    const f = floats[i]; f.y -= 46 * dt; f.life -= dt * 0.9;
-    if (f.life <= 0) floats.splice(i, 1);
-  }
-  for (let i = particles.length - 1; i >= 0; i--) {
-    const p = particles[i];
-    p.x += p.vx * dt; p.y += p.vy * dt; p.vy -= 40 * dt; p.life -= dt * 1.5;
-    if (p.life <= 0) particles.splice(i, 1);
-  }
-}
-
-function updateAmbient(dt) {
-  for (const a of ambient) {
-    a.y -= a.sp * dt; a.ph += dt;
-    if (a.y < -10) { a.y = H + 10; a.x = Math.random() * W; }
-  }
-}
-
-function updateWave(dt) {
-  waveTop -= 720 * dt;                       // froth climbs the screen
-  updateFloatsParticles(dt);
-  for (const b of bubbles) if (b.popped) b.pop -= dt * 4;
-  if (waveTop < -80) finalizeGameOver();
-}
-
-// ============================================================
-//  RENDER  (canvas is transparent; the aquarium shows through from CSS)
-// ============================================================
-function drawAmbient() {
-  ctx.save();
-  for (const a of ambient) {
-    ctx.globalAlpha = 0.3;
-    ctx.beginPath(); ctx.arc(a.x + Math.sin(a.ph) * 4, a.y, a.r, 0, 7);
-    ctx.fillStyle = 'rgba(225,250,255,0.7)'; ctx.fill();
-  }
-  ctx.restore();
-}
-
-function drawO2Bubble(b) {
-  const scale = b.popped ? 1 + (1 - b.pop) * 0.7 : 1;
-  const a = b.popped ? Math.max(b.pop, 0) : 1;
-  const r = b.r * scale;
-  ctx.save(); ctx.globalAlpha = a;
-
-  const g = ctx.createRadialGradient(b.x - r*0.35, b.y - r*0.35, r*0.1, b.x, b.y, r);
-  g.addColorStop(0, 'rgba(255,255,255,0.6)');
-  g.addColorStop(0.5, 'rgba(190,245,255,0.22)');
-  g.addColorStop(1, 'rgba(120,210,255,0.12)');
-  ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, 7); ctx.fillStyle = g; ctx.fill();
-
-  ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.stroke();
-
-  ctx.beginPath(); ctx.arc(b.x - r*0.34, b.y - r*0.36, r*0.18, 0, 7);
-  ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.fill();
-  ctx.beginPath(); ctx.arc(b.x + r*0.3, b.y + r*0.28, r*0.08, 0, 7);
-  ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.fill();
-
-  ctx.fillStyle = 'rgba(255,255,255,0.97)';
-  ctx.font = `800 ${Math.round(r * 0.6)}px Rubik, system-ui, sans-serif`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(0,60,90,0.7)'; ctx.shadowBlur = 6;
-  ctx.fillText('O₂', b.x, b.y + 1);
-  ctx.restore();
-}
-
-function drawJelly(b) {
-  const scale = b.popped ? 1 + (1 - b.pop) * 0.7 : 1;
-  const a = (b.popped ? Math.max(b.pop, 0) : 1) * 0.96;
-  const r = b.r * scale;
-  const pulse = 1 + Math.sin(b.ph * 2) * 0.06;
-  const cx = b.x, cy = b.y;
-  ctx.save(); ctx.globalAlpha = a;
-
-  // tentacles
-  ctx.strokeStyle = `hsla(${b.hue},90%,82%,0.6)`; ctx.lineWidth = 3; ctx.lineCap = 'round';
-  for (let k = -2; k <= 2; k++) {
-    const tx = cx + k * (r * 0.26);
-    ctx.beginPath(); ctx.moveTo(tx, cy + r * 0.25);
-    for (let s = 1; s <= 4; s++) {
-      const yy = cy + r * 0.25 + s * (r * 0.30);
-      const xx = tx + Math.sin(b.ph * 1.6 + s * 0.9 + k) * (r * 0.13);
-      ctx.lineTo(xx, yy);
+    if (b.popped) continue;
+    const dx = x - b.x, dy = y - b.y;
+    if (dx * dx + dy * dy <= (b.r + slack) * (b.r + slack)) {
+      popBubble(b);
+      return true;
     }
-    ctx.stroke();
   }
-
-  // bell with scalloped bottom
-  const bw = r * 0.82 * pulse, bh = r * 0.72 * pulse;
-  const bell = ctx.createRadialGradient(cx, cy - bh*0.4, r*0.1, cx, cy, r);
-  bell.addColorStop(0, `hsla(${b.hue},95%,90%,0.65)`);
-  bell.addColorStop(1, `hsla(${b.hue},90%,72%,0.22)`);
-  ctx.beginPath();
-  ctx.moveTo(cx - bw, cy);
-  ctx.quadraticCurveTo(cx - bw, cy - bh * 1.5, cx, cy - bh * 1.5);
-  ctx.quadraticCurveTo(cx + bw, cy - bh * 1.5, cx + bw, cy);
-  const scN = 4;
-  for (let s = 0; s < scN; s++) {
-    const x1 = cx + bw - (s + 1) * (2 * bw / scN);
-    const midx = x1 + bw / scN;
-    ctx.quadraticCurveTo(midx, cy + bh * 0.34, x1, cy);
-  }
-  ctx.closePath();
-  ctx.fillStyle = bell; ctx.fill();
-  ctx.strokeStyle = `hsla(${b.hue},90%,88%,0.75)`; ctx.lineWidth = 2; ctx.stroke();
-
-  // cute eyes
-  const ex = r * 0.24, ey = -r * 0.16, er = r * 0.13;
-  drawEye(cx - ex, cy + ey, er); drawEye(cx + ex, cy + ey, er);
-  ctx.restore();
+  return false;
 }
 
-function drawEye(x, y, r) {
-  ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fillStyle = '#fff'; ctx.fill();
-  ctx.beginPath(); ctx.arc(x + r*0.18, y + r*0.1, r*0.55, 0, 7); ctx.fillStyle = '#10223a'; ctx.fill();
-  ctx.beginPath(); ctx.arc(x - r*0.15, y - r*0.2, r*0.22, 0, 7); ctx.fillStyle = '#fff'; ctx.fill();
-}
+canvas.addEventListener('pointerdown', (e) => {
+  if (!running) return;
+  popAt(e.clientX, e.clientY, 14);
+});
 
-function drawEntities() {
-  for (const b of bubbles) (b.kind === 'o2' ? drawO2Bubble : drawJelly)(b);
-}
-
-function drawFX() {
-  for (const p of particles) {
-    ctx.globalAlpha = Math.max(p.life, 0);
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fillStyle = p.color; ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-  for (const f of floats) {
-    ctx.globalAlpha = Math.max(f.life, 0);
-    ctx.font = '800 34px Rubik, system-ui, sans-serif'; ctx.textAlign = 'center';
-    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.strokeText(f.text, f.x, f.y);
-    ctx.fillStyle = f.color; ctx.fillText(f.text, f.x, f.y);
-  }
-  ctx.globalAlpha = 1;
-}
-
-function drawCursors() {
-  for (const c of cursors) {
-    ctx.beginPath(); ctx.arc(c.x, c.y, 24, 0, 7);
-    ctx.strokeStyle = '#eaffff'; ctx.lineWidth = 4;
-    ctx.shadowColor = '#39c4ff'; ctx.shadowBlur = 18; ctx.stroke(); ctx.shadowBlur = 0;
-    ctx.beginPath(); ctx.arc(c.x, c.y, 5, 0, 7); ctx.fillStyle = '#9af6ff'; ctx.fill();
-  }
-}
-
-function drawWave() {
-  ctx.save();
-  ctx.fillStyle = 'rgba(150,228,255,0.55)';
-  ctx.fillRect(0, waveTop + 30, W, H - waveTop);
-  for (const col of waveCols) {
-    const y = waveTop + Math.sin(tNow * 4 + col.ph) * 10;
-    ctx.beginPath(); ctx.arc(col.x, y, col.r, 0, 7);
-    ctx.fillStyle = 'rgba(210,248,255,0.8)'; ctx.fill();
-    ctx.beginPath(); ctx.arc(col.x - col.r*0.3, y - col.r*0.3, col.r*0.3, 0, 7);
-    ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fill();
-  }
-  ctx.restore();
-}
-
-function drawPaused() {
-  ctx.fillStyle = 'rgba(3,18,34,0.5)'; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#eaffff'; ctx.font = '800 56px Rubik, system-ui, sans-serif';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('⏸ Paused', W/2, H/2);
-}
-
-function render() {
-  ctx.clearRect(0, 0, W, H);     // keep canvas transparent so the aquarium shows
-  drawAmbient();
-  if (state === S.PLAYING || state === S.PAUSED) {
-    drawEntities(); drawFX(); drawCursors();
-    if (!cursors.length && state === S.PLAYING) {
-      ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = '700 26px Rubik, system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.shadowColor = 'rgba(0,20,40,0.9)'; ctx.shadowBlur = 8;
-      ctx.fillText('✋ Show your hand to the camera', W/2, H - 40); ctx.shadowBlur = 0;
+/* MediaPipe Hands — loaded lazily from CDN; the game works without it. */
+function preloadHands() {
+  if (handsApi || preloadHands.loading) return;
+  preloadHands.loading = true;
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js';
+  s.onload = () => {
+    try {
+      handsApi = new Hands({
+        locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`,
+      });
+      handsApi.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 0,
+        minDetectionConfidence: 0.55,
+        minTrackingConfidence: 0.5,
+      });
+      handsApi.onResults(onHands);
+      handsReady = true;
+    } catch (e) {
+      console.warn('Hands init failed — touch mode only', e);
     }
-    updateHud();
-    if (state === S.PAUSED) drawPaused();
-  } else if (state === S.WAVE) {
-    drawEntities(); drawFX(); drawWave();
-  }
+  };
+  s.onerror = () => console.warn('Hands CDN unavailable — touch mode only');
+  document.head.appendChild(s);
 }
 
-// ============================================================
-//  MAIN LOOP
-// ============================================================
-function loop(ts) {
-  requestAnimationFrame(loop);
-  const dt = Math.min((ts - (lastTime || ts)) / 1000, 0.05);
-  lastTime = ts; tNow += dt;
-  updateAmbient(dt);
-  if (state === S.PLAYING) updatePlay(dt);
-  else if (state === S.WAVE) updateWave(dt);
-  render();
+/** Map a normalized video landmark to screen px (mirrored, object-fit: cover). */
+function videoToScreen(nx, ny) {
+  const vw = video.videoWidth || 1280;
+  const vh = video.videoHeight || 720;
+  const scale = Math.max(W / vw, H / vh);
+  const dw = vw * scale, dh = vh * scale;
+  const ox = (W - dw) / 2, oy = (H - dh) / 2;
+  return { x: W - (ox + nx * dw), y: oy + ny * dh };
 }
 
-// ============================================================
-//  HUD
-// ============================================================
-function updateHud() {
-  o2Fill.style.width = (o2 / O2_MAX * 100) + '%';
-  o2Fill.classList.toggle('low', o2 < 25);
-  strikeEls.forEach((el, i) => el.classList.toggle('used', i < strikes));
-}
-
-// ============================================================
-//  SOUND (WebAudio — synthesized, no files)
-// ============================================================
-let actx = null;
-function audio() { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); return actx; }
-
-function tone(type, f0, f1, dur, gain, when = 0) {
-  const ac = audio(), t = ac.currentTime + when;
-  const o = ac.createOscillator(), g = ac.createGain();
-  o.type = type; o.frequency.setValueAtTime(f0, t);
-  o.frequency.exponentialRampToValueAtTime(Math.max(f1, 1), t + dur);
-  g.gain.setValueAtTime(gain, t);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
-}
-
-function noiseBurst(dur, gain, freq) {
-  const ac = audio(), t = ac.currentTime;
-  const buf = ac.createBuffer(1, ac.sampleRate * dur, ac.sampleRate);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
-  const src = ac.createBufferSource(); src.buffer = buf;
-  const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = freq;
-  const g = ac.createGain(); g.gain.value = gain;
-  src.connect(bp); bp.connect(g); g.connect(ac.destination); src.start(t);
-}
-
-function playClick() { if (muted) return; tone('triangle', 680, 1040, 0.09, 0.3); tone('square', 1040, 1320, 0.06, 0.1, 0.05); }
-function playPop()   { if (muted) return; tone('sine', 900, 280, 0.12, 0.32); noiseBurst(0.06, 0.14, 1200); }
-function playWarn()  { if (muted) return; tone('sine', 440, 440, 0.12, 0.2); }
-function playGameOverSound() { if (muted) return; tone('sawtooth', 320, 70, 0.7, 0.26); tone('sine', 240, 60, 0.8, 0.16, 0.05); }
-function playCry() {                              // wavering, sad jellyfish cry
-  if (muted) return;
-  const ac = audio(), t = ac.currentTime;
-  const o = ac.createOscillator(), lfo = ac.createOscillator(), lg = ac.createGain(), g = ac.createGain();
-  o.type = 'triangle'; o.frequency.setValueAtTime(520, t);
-  o.frequency.exponentialRampToValueAtTime(190, t + 0.55);
-  lfo.frequency.value = 13; lg.gain.value = 28; lfo.connect(lg); lg.connect(o.frequency);
-  g.gain.setValueAtTime(0.3, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
-  o.connect(g); g.connect(ac.destination);
-  o.start(t); lfo.start(t); o.stop(t + 0.62); lfo.stop(t + 0.62);
-}
-
-// ============================================================
-//  HAND TRACKING (MediaPipe Hands)
-// ============================================================
-let hands = null, camera = null;
-
-function onResults(res) {
-  cursors = [];
+function onHands(res) {
+  const found = [];
   if (res.multiHandLandmarks) {
     for (const lm of res.multiHandLandmarks) {
-      const tip = lm[8];                                  // index fingertip
-      cursors.push({ x: (1 - tip.x) * W, y: tip.y * H });  // mirror x to match a selfie view
+      const tip = lm[8]; // index fingertip
+      found.push(videoToScreen(tip.x, tip.y));
     }
   }
+  // smooth against previous cursors
+  pointers = found.map((p, i) => {
+    const prev = pointers[i];
+    return prev
+      ? { x: lerp(prev.x, p.x, 0.55), y: lerp(prev.y, p.y, 0.55) }
+      : p;
+  });
 }
 
-async function startTracking() {
-  hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
-  hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
-  hands.onResults(onResults);
-  camera = new Camera(video, { onFrame: async () => { await hands.send({ image: video }); }, width: 1280, height: 720 });
-  await camera.start();
-  cameraStarted = true;
-}
-
-// ============================================================
-//  SCREEN FLOW
-// ============================================================
-function show(el, on) { el.classList.toggle('hidden', !on); }
-
-function beginRound() {
-  o2 = O2_MAX; strikes = 0; elapsed = 0; survived = 0; spawnTimer = 0; lowO2Timer = 0;
-  bubbles.length = floats.length = particles.length = 0;
-  updateHud();
-  show(startScreen, false); show(instructions, false); show(gameover, false);
-  hud.classList.remove('hidden');
-  pauseBtn.textContent = '⏸';
-  state = S.PLAYING; lastTime = performance.now();
-}
-
-function gameOver(reason) {
-  if (state !== S.PLAYING) return;
-  goReasonKind = reason;
-  survived = elapsed;
-  if (survived > bestTime) { bestTime = survived; localStorage.setItem('bubblepop_best_time', bestTime); }
-  playGameOverSound();
-  // launch the rising bubble-wave closing animation
-  waveTop = H + 40;
-  waveCols = Array.from({ length: 80 }, () => ({
-    x: Math.random() * W, r: 14 + Math.random() * 44, ph: Math.random() * 7,
-  }));
-  state = S.WAVE;
-}
-
-function finalizeGameOver() {
-  goReason.textContent = goReasonKind === 'jelly'
-    ? '🪼 Stung by 3 jellyfish!' : '🌬️ You ran out of oxygen!';
-  goTime.textContent = Math.floor(survived) + 's';
-  goBest.textContent = Math.floor(bestTime) + 's';
-  hud.classList.add('hidden');
-  show(gameover, true);
-  state = S.GAMEOVER;
-}
-
-// ---------- Controls ----------
-startBtn.addEventListener('click', async () => {
-  playClick();
-  startBtn.disabled = true;
-  statusEl.textContent = 'Loading camera & hand tracking…';
-  try {
-    if (!cameraStarted) await startTracking();
-  } catch (e) {
-    statusEl.textContent = '⚠️ Camera/model failed. Allow camera access and open via http://localhost (not file://).';
-    startBtn.disabled = false; console.error(e); return;
+async function handLoop() {
+  if (!handLoopOn) return;
+  if (handsReady && camStream && video.readyState >= 2) {
+    try { await handsApi.send({ image: video }); } catch (e) { /* skip frame */ }
   }
-  statusEl.textContent = '';
-  state = S.INSTRUCT;
-  show(startScreen, false); show(instructions, true);
+  requestAnimationFrame(handLoop);
+}
+
+/* ───────────────────── CAMERA SETUP ──────────────────────────── */
+
+async function startCamera() {
+  const notice = $('#camNotice');
+  const text = $('#camNoticeText');
+  const btnTouch = $('#btnTouchMode');
+  notice.hidden = false;
+  btnTouch.hidden = true;
+  text.textContent = 'Your browser will ask for camera access — that’s how you dive in! 🫧';
+
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false,
+    });
+    video.srcObject = camStream;
+    await video.play().catch(() => {});
+    video.classList.add('live');
+    screens.game.classList.remove('no-cam');
+    notice.hidden = true;
+    handLoopOn = true;
+    handLoop();
+  } catch (err) {
+    camStream = null;
+    screens.game.classList.add('no-cam');
+    text.textContent = 'Camera unavailable — but you can still pop bubbles by tapping!';
+    btnTouch.hidden = false;
+    await new Promise((res) => {
+      btnTouch.onclick = () => { snd.click(); notice.hidden = true; res(); };
+    });
+  }
+}
+
+function stopCamera() {
+  handLoopOn = false;
+  if (camStream) {
+    camStream.getTracks().forEach((t) => t.stop());
+    camStream = null;
+  }
+  video.classList.remove('live');
+  video.srcObject = null;
+  pointers = [];
+}
+
+/* ─────────────────────── FISH & DUST ─────────────────────────── */
+
+const FISH = ['🐠', '🐟', '🐡', '🦑', '🐢', '🦐'];
+
+function spawnFish() {
+  const f = document.createElement('div');
+  f.className = 'fish';
+  f.textContent = FISH[(Math.random() * FISH.length) | 0];
+  const dir = Math.random() < 0.5 ? 1 : -1;
+  f.style.fontSize = rand(20, 44) + 'px';
+  f.style.top = rand(12, 70) + 'vh';
+  f.style.setProperty('--fdir', dir);
+  f.style.setProperty('--fx0', (dir === 1 ? -15 : 115) + 'vw');
+  f.style.setProperty('--fx1', (dir === 1 ? 115 : -15) + 'vw');
+  f.style.setProperty('--fy1', rand(-8, 8) + 'vh');
+  f.style.animationDuration = rand(9, 19) + 's';
+  f.addEventListener('animationend', () => f.remove());
+  fishLayer.appendChild(f);
+}
+
+function initDust() {
+  dust = [];
+  for (let i = 0; i < 42; i++) {
+    dust.push({ x: rand(0, W), y: rand(0, H), r: rand(0.7, 2.4), v: rand(4, 16), drift: rand(-6, 6) });
+  }
+}
+
+/* ─────────────────────── GAME LOOP ───────────────────────────── */
+
+function update(dt, t) {
+  elapsed += dt;
+  const d = difficulty();
+
+  spawnTimer -= dt * 1000;
+  if (spawnTimer <= 0) {
+    spawnBubble();
+    spawnTimer = d.spawnMs * rand(0.8, 1.2);
+  }
+
+  fishTimer -= dt;
+  if (fishTimer <= 0) {
+    spawnFish();
+    fishTimer = rand(2.2, 5);
+  }
+
+  for (const b of bubbles) {
+    b.y -= b.vy * dt;
+    b.x += Math.sin(t * b.wobSpd + b.phase) * b.wobAmp * dt;
+    b.x = clamp(b.x, b.r * 0.6, W - b.r * 0.6);
+  }
+  bubbles = bubbles.filter((b) => !b.popped && b.y > -b.r - 40);
+
+  // fingertip popping
+  for (const p of pointers) popAt(p.x, p.y, 4);
+
+  for (const pt of particles) {
+    if (pt.kind === 'drop') {
+      pt.x += pt.vx * dt;
+      pt.y += pt.vy * dt;
+      pt.vy -= 140 * dt; // buoyancy — droplets float up
+      pt.life -= dt * 1.8;
+    } else {
+      pt.r = lerp(pt.r, pt.max, dt * 10);
+      pt.life -= dt * 2.6;
+    }
+  }
+  particles = particles.filter((p) => p.life > 0);
+
+  for (const tx of texts) { tx.y -= 55 * dt; tx.life -= dt * 1.1; }
+  texts = texts.filter((tx) => tx.life > 0);
+
+  for (const s of dust) {
+    s.y -= s.v * dt;
+    s.x += s.drift * dt;
+    if (s.y < -4) { s.y = H + 4; s.x = rand(0, W); }
+  }
+}
+
+function draw(t) {
+  ctx2d.clearRect(0, 0, W, H);
+
+  ctx2d.fillStyle = 'rgba(255,255,255,0.16)';
+  for (const s of dust) {
+    ctx2d.beginPath();
+    ctx2d.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx2d.fill();
+  }
+
+  for (const b of bubbles) {
+    if (!b.popped) drawBubble(b, t);
+  }
+
+  for (const pt of particles) {
+    if (pt.kind === 'ring') {
+      ctx2d.beginPath();
+      ctx2d.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
+      ctx2d.strokeStyle = `rgba(${pt.color},${pt.life * 0.8})`;
+      ctx2d.lineWidth = 3;
+      ctx2d.stroke();
+    } else {
+      ctx2d.beginPath();
+      ctx2d.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
+      ctx2d.fillStyle = `rgba(${pt.color},${pt.life * 0.9})`;
+      ctx2d.fill();
+    }
+  }
+
+  ctx2d.textAlign = 'center';
+  ctx2d.textBaseline = 'middle';
+  for (const tx of texts) {
+    ctx2d.font = `${clamp(W * 0.045, 22, 34)}px 'Alfa Slab One', serif`;
+    ctx2d.fillStyle = tx.color;
+    ctx2d.globalAlpha = clamp(tx.life, 0, 1);
+    ctx2d.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx2d.shadowBlur = 8;
+    ctx2d.fillText(tx.txt, tx.x, tx.y);
+    ctx2d.globalAlpha = 1;
+    ctx2d.shadowBlur = 0;
+  }
+
+  // fingertip cursors
+  for (const p of pointers) {
+    const g = ctx2d.createRadialGradient(p.x, p.y, 2, p.x, p.y, 26);
+    g.addColorStop(0, 'rgba(255,255,255,0.9)');
+    g.addColorStop(0.4, 'rgba(180,235,255,0.45)');
+    g.addColorStop(1, 'rgba(180,235,255,0)');
+    ctx2d.beginPath();
+    ctx2d.arc(p.x, p.y, 26, 0, Math.PI * 2);
+    ctx2d.fillStyle = g;
+    ctx2d.fill();
+    ctx2d.beginPath();
+    ctx2d.arc(p.x, p.y, 15, 0, Math.PI * 2);
+    ctx2d.strokeStyle = 'rgba(255,255,255,0.95)';
+    ctx2d.lineWidth = 2.5;
+    ctx2d.stroke();
+  }
+}
+
+function frame(now) {
+  if (!running) return;
+  const dt = Math.min((now - lastT) / 1000, 0.05);
+  lastT = now;
+  update(dt, now / 1000);
+  draw(now / 1000);
+  rafId = requestAnimationFrame(frame);
+}
+
+/* ──────────────── GAME START / END / RESET ───────────────────── */
+
+async function countdown() {
+  const el = $('#countdown');
+  el.hidden = false;
+  for (const n of ['3', '2', '1', 'GO!']) {
+    el.innerHTML = `<span>${n}</span>`;
+    snd.count(n === 'GO!');
+    await wait(n === 'GO!' ? 700 : 850);
+  }
+  el.hidden = true;
+}
+
+function resetState() {
+  score = 0;
+  lives = 3;
+  elapsed = 0;
+  spawnTimer = 400;
+  fishTimer = 0.5;
+  bubbles = [];
+  particles = [];
+  texts = [];
+  $('#hudScore').textContent = '0';
+  $('#hudBest').textContent = getBest();
+  $('#gameOver').hidden = true;
+  renderLives();
+}
+
+async function startGame() {
+  resizeCanvas();
+  initDust();
+  resetState();
+  fishLayer.innerHTML = '';
+  await startCamera();
+  await countdown();
+  running = true;
+  lastT = performance.now();
+  rafId = requestAnimationFrame(frame);
+}
+
+function endGame() {
+  running = false;
+  cancelAnimationFrame(rafId);
+  snd.over();
+
+  const best = getBest();
+  const isRecord = score > best;
+  if (isRecord) localStorage.setItem(BEST_KEY, String(score));
+
+  $('#goScore').textContent = score;
+  $('#goBest').textContent = Math.max(best, score);
+  $('#goRecord').hidden = !isRecord;
+  setTimeout(() => { $('#gameOver').hidden = false; }, 750);
+}
+
+/* ─────────────────────── WIRING ──────────────────────────────── */
+
+$('#btnStart').addEventListener('click', async () => {
+  snd.click();
+  await bubbleWash(() => openInstructions());
 });
 
-letsGoBtn.addEventListener('click', () => { playClick(); beginRound(); });
-playAgainBtn.addEventListener('click', () => { playClick(); beginRound(); });
-
-pauseBtn.addEventListener('click', () => {
-  if (state === S.PLAYING) { state = S.PAUSED; pauseBtn.textContent = '▶'; }
-  else if (state === S.PAUSED) { state = S.PLAYING; pauseBtn.textContent = '⏸'; lastTime = performance.now(); }
+$('#btnPlay').addEventListener('click', async () => {
+  snd.click();
+  await bubbleWash(() => {
+    showScreen('game');
+    startGame();
+  });
 });
 
-muteBtn.addEventListener('click', () => { muted = !muted; muteBtn.textContent = muted ? '🔇' : '🔊'; });
+$('#btnRetry').addEventListener('click', async () => {
+  snd.click();
+  await bubbleWash(async () => {
+    resetState();
+    if (!camStream) await startCamera();
+    await countdown();
+    running = true;
+    lastT = performance.now();
+    rafId = requestAnimationFrame(frame);
+  });
+});
 
-// Start the render loop (idles on the start screen until play begins).
-requestAnimationFrame(loop);
+$('#btnHome').addEventListener('click', async () => {
+  snd.click();
+  await bubbleWash(() => {
+    running = false;
+    cancelAnimationFrame(rafId);
+    stopCamera();
+    $('#gameOver').hidden = true;
+    showScreen('home');
+    revealHomeUi();
+  });
+});
+
+$('#btnMute').addEventListener('click', (e) => {
+  muted = !muted;
+  e.currentTarget.textContent = muted ? '🔇' : '🔊';
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && running) {
+    running = false;
+    cancelAnimationFrame(rafId);
+    running = 'paused';
+  } else if (running === 'paused') {
+    running = true;
+    lastT = performance.now();
+    rafId = requestAnimationFrame(frame);
+  }
+});
+
+/* ─────────────────────── BOOT ────────────────────────────────── */
+
+resizeCanvas();
+$('#hudBest').textContent = getBest();
+
+// wait for the scribble font so the letters render correctly, then play
+if (document.fonts && document.fonts.ready) {
+  Promise.race([document.fonts.ready, wait(1800)]).then(() => playIntro());
+} else {
+  playIntro();
+}

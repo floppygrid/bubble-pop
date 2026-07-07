@@ -2,84 +2,161 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>🫧 Bubble Pop</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#7fc4d8" />
+  <meta name="description" content="Bubble PoP — pop the oxygen bubbles to survive! A camera-powered underwater arcade game." />
+  <title>Bubble PoP</title>
 
-  <!-- Title font from the Figma design: Rubik Scribble -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Rubik+Scribble&family=Rubik:wght@500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Rubik+Scribble&family=Alice&family=Alfa+Slab+One&family=Press+Start+2P&display=swap" rel="stylesheet" />
 
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { height: 100%; overflow: hidden; }
-
-    /* Full-bleed aquarium background — covers the whole window, no frame */
-    body {
-      font-family: "Rubik", system-ui, sans-serif;
-      background: #0a2336 url("assets/background.jpg") center / cover no-repeat fixed;
-      cursor: pointer;
-    }
-
-    /* Centered title; letters rise from below and gather into the word */
-    .title {
-      position: fixed; inset: 0;
-      display: flex; align-items: center; justify-content: center;
-      animation: floatTitle 5s ease-in-out 2.6s infinite;   /* gentle bob once formed */
-    }
-    .glyph {
-      font-family: "Rubik Scribble", cursive;
-      font-weight: 400; line-height: 1;
-      font-size: clamp(44px, 9vw, 124px);
-      color: #ffffff;
-      text-shadow: 2px 10px 6px rgba(0, 0, 0, 0.89);        /* exact shadow from Figma */
-      display: inline-block;
-      animation: gather 1.2s cubic-bezier(0.18, 0.9, 0.25, 1.2) var(--d) both;
-    }
-    .sp { width: 0.4em; }
-
-    /* Each letter floats up from below at a different spot, then aligns */
-    @keyframes gather {
-      0%   { transform: translate(var(--sx), var(--sy)) scale(0.4) rotate(-8deg); opacity: 0; }
-      70%  { opacity: 1; }
-      85%  { transform: translate(0, -14px) scale(1.06); }
-      100% { transform: translate(0, 0) scale(1) rotate(0); opacity: 1; }
-    }
-    @keyframes floatTitle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
-
-    /* "Dive in" prompt fades in after the word forms */
-    .enter {
-      position: fixed; left: 50%; bottom: 6%; transform: translateX(-50%);
-      font-weight: 700; font-size: clamp(15px, 2vw, 20px); color: #fff;
-      letter-spacing: 1px; text-shadow: 0 2px 10px rgba(0, 20, 40, 0.9);
-      background: rgba(8, 34, 52, 0.4); border: 1px solid rgba(255,255,255,0.35);
-      padding: 12px 26px; border-radius: 999px; backdrop-filter: blur(6px);
-      opacity: 0; animation: fadeInUp 0.8s ease 3s forwards, pulse 2s ease-in-out 3.2s infinite;
-    }
-    @keyframes fadeInUp { from { opacity: 0; transform: translate(-50%, 14px); } to { opacity: 1; transform: translate(-50%, 0); } }
-    @keyframes pulse { 0%, 100% { transform: translate(-50%, 0) scale(1); } 50% { transform: translate(-50%, 0) scale(1.05); } }
-  </style>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='42' fill='none' stroke='white' stroke-width='6'/><circle cx='38' cy='36' r='10' fill='white'/></svg>" />
 </head>
 <body>
-  <!-- Letters rise from below (varied --sx/--sy) and gather into "Bubble PoP" -->
-  <h1 class="title" aria-label="Bubble PoP">
-    <span class="glyph" style="--sx:-24vw; --sy:95vh; --d:.10s">B</span>
-    <span class="glyph" style="--sx:-16vw; --sy:80vh; --d:.25s">u</span>
-    <span class="glyph" style="--sx:-6vw;  --sy:100vh;--d:.40s">b</span>
-    <span class="glyph" style="--sx:4vw;   --sy:78vh; --d:.55s">b</span>
-    <span class="glyph" style="--sx:-10vw; --sy:88vh; --d:.70s">l</span>
-    <span class="glyph" style="--sx:10vw;  --sy:96vh; --d:.85s">e</span>
-    <span class="sp"></span>
-    <span class="glyph" style="--sx:18vw;  --sy:82vh; --d:1.00s">P</span>
-    <span class="glyph" style="--sx:24vw;  --sy:100vh;--d:1.15s">o</span>
-    <span class="glyph" style="--sx:30vw;  --sy:86vh; --d:1.30s">P</span>
-  </h1>
 
-  <div class="enter">Click to dive in →</div>
+  <!-- ══════════════ SCREEN 1 + 2 : LOADING LETTERS → HOME ══════════════ -->
+  <section id="screen-home" class="screen is-active">
+    <div class="aquarium-bg"></div>
 
-  <script>
-    // Loading screen loads the game when the user is ready.
-    document.body.addEventListener('click', () => { window.location.href = 'game.html'; });
-  </script>
+    <!-- floating letters (loading animation) -->
+    <div id="letterStage" class="letter-stage" aria-hidden="true"></div>
+
+    <!-- final assembled title + UI -->
+    <div class="home-ui">
+      <h1 id="homeTitle" class="game-title">
+        <span>B</span><span>u</span><span>b</span><span>b</span><span>l</span><span>e</span><span class="sp">&nbsp;</span><span>P</span><span>o</span><span>P</span>
+      </h1>
+      <p id="homeTagline" class="tagline hidden-soft">Pop the Oxygen bubbles to survive!</p>
+      <button id="btnStart" class="btn-candy hidden-soft" type="button">Start Game</button>
+    </div>
+  </section>
+
+  <!-- ══════════════ SCREEN 3 : INSTRUCTIONS (retro manual) ══════════════ -->
+  <section id="screen-instructions" class="screen">
+    <div class="aquarium-bg dimmed"></div>
+
+    <div class="manual-wrap">
+      <div class="manual">
+        <header class="manual-head">
+          <span class="manual-seal">★</span>
+          <div class="manual-head-text">
+            <span class="manual-kicker">INSTRUCTION BOOKLET</span>
+            <span class="manual-title">BUBBLE PoP™</span>
+          </div>
+          <span class="manual-page">PAGE 04</span>
+        </header>
+
+        <div class="manual-body">
+          <!-- left : illustrated panel -->
+          <div class="manual-art">
+            <div class="art-scene">
+              <div class="art-rays"></div>
+              <div class="art-mascot" title="Popo the diver">🤿</div>
+              <div class="art-bubble art-o2 b1">O₂</div>
+              <div class="art-bubble art-o2 b2">O₂</div>
+              <div class="art-bubble art-o2 b3">O₂</div>
+              <div class="art-jelly j1">🪼</div>
+              <div class="art-jelly j2">🪼</div>
+              <div class="art-gift">🎁</div>
+              <div class="art-sand"></div>
+            </div>
+            <p class="art-caption">FIG. 1 — Popo needs oxygen. Jellyfish are sneaky. Stay sharp!</p>
+
+            <div id="bestScoreBox" class="best-box" hidden>
+              <span class="best-label">YOUR BEST SCORE</span>
+              <span id="bestScoreManual" class="best-value">0</span>
+            </div>
+          </div>
+
+          <!-- right : how to play -->
+          <div class="manual-text">
+            <h2 class="manual-h2">HOW TO PLAY</h2>
+            <ol class="manual-steps">
+              <li><b>Allow your camera.</b> You become the diver — wave your hands to touch things on screen!</li>
+              <li><b>Pop white O₂ bubbles</b> with your fingertip (or tap them). Each one keeps you breathing. <span class="tag tag-good">+5</span></li>
+              <li><b>Beware of jellyfish!</b> They disguise themselves as pretty pink &amp; blue bubbles. Pop <b>3</b> and it's game over. <span class="tag tag-bad">☠</span></li>
+              <li><b>Gift bubbles</b> hide treasure — bonus points <span class="tag tag-good">+10</span> <span class="tag tag-good">+25</span> and rarely an <b>extra life</b> <span class="tag tag-life">♥</span></li>
+              <li>The deeper you go, the <b>faster</b> it gets… and the jellyfish multiply!</li>
+            </ol>
+
+            <div class="manual-note">
+              <span class="note-icon">!</span>
+              <p>No camera? No problem — you can also play by <b>tapping</b> the bubbles.</p>
+            </div>
+
+            <button id="btnPlay" class="btn-candy btn-play" type="button">Start Popping</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ GAME SCREEN ══════════════ -->
+  <section id="screen-game" class="screen">
+    <div class="ocean-fallback"></div>
+    <video id="cam" autoplay playsinline muted></video>
+    <div class="ocean-tint"></div>
+    <div class="light-rays"></div>
+    <div id="fishLayer" class="fish-layer"></div>
+    <div class="coral coral-left"></div>
+    <div class="coral coral-right"></div>
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- HUD -->
+    <div class="hud">
+      <div class="hud-chip hud-score">
+        <span class="hud-label">SCORE</span>
+        <span id="hudScore" class="hud-value">0</span>
+      </div>
+      <div class="hud-chip hud-lives" id="hudLives" aria-label="lives"></div>
+      <div class="hud-chip hud-best">
+        <span class="hud-label">BEST</span>
+        <span id="hudBest" class="hud-value">0</span>
+      </div>
+    </div>
+    <button id="btnMute" class="btn-round" type="button" aria-label="mute">🔊</button>
+
+    <!-- countdown -->
+    <div id="countdown" class="countdown" hidden></div>
+
+    <!-- jellyfish hit flash -->
+    <div id="skullFlash" class="skull-flash" hidden>
+      <div class="skull">☠️</div>
+    </div>
+
+    <!-- camera permission helper -->
+    <div id="camNotice" class="cam-notice" hidden>
+      <div class="cam-card">
+        <div class="cam-emoji">📷</div>
+        <p id="camNoticeText">Waiting for camera permission…</p>
+        <button id="btnTouchMode" class="btn-candy btn-small" type="button" hidden>Play with touch instead</button>
+      </div>
+    </div>
+
+    <!-- game over -->
+    <div id="gameOver" class="game-over" hidden>
+      <div class="go-card">
+        <div class="go-skull">☠️</div>
+        <h2 class="go-title">GAME OVER</h2>
+        <p class="go-sub">The jellyfish got you…</p>
+        <div class="go-scores">
+          <div class="go-box"><span>SCORE</span><b id="goScore">0</b></div>
+          <div class="go-box"><span>BEST</span><b id="goBest">0</b></div>
+        </div>
+        <div id="goRecord" class="go-record" hidden>★ NEW RECORD ★</div>
+        <div class="go-actions">
+          <button id="btnRetry" class="btn-candy" type="button">Play Again</button>
+          <button id="btnHome" class="btn-candy btn-ghost" type="button">Home</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ BUBBLE WASH TRANSITION ══════════════ -->
+  <div id="bubbleWash" class="bubble-wash" aria-hidden="true"></div>
+
+  <script src="game.js"></script>
 </body>
 </html>

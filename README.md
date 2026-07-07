@@ -1,68 +1,62 @@
-# 🫧 Bubble Pop — Underwater O₂ Survival
+# Bubble PoP 🫧
 
-A webcam **hand-tracking** survival game. You're underwater: move your hand to
-pop rising **O₂ bubbles** and keep breathing, while dodging **jellyfish**.
+**Pop the Oxygen bubbles to survive!**
 
-- 🫧 **O₂ bubbles** rise from below — pop them to refill your oxygen meter.
-- 🌬️ Your **oxygen constantly drains**. Hit zero and it's game over.
-- 🪼 **Jellyfish** drift up among the bubbles — pop **3** and you're done.
-- ⚡ Bubbles rise **faster the longer you survive**.
+An underwater arcade game you play with your *hands* — your camera turns you into
+the diver, and you pop bubbles by touching them with your fingertip (or by
+tapping, on any device). Built with plain HTML, CSS and JavaScript — no build
+step, no framework.
 
-Header shows your **O₂ level** and **jellyfish strikes (×/3)**.
+## How it plays
+
+| Bubble | What it does |
+| --- | --- |
+| ⚪ **O₂ bubble** | +5 points — pop these to survive |
+| 🪼 **Jellyfish** | Disguised as pretty pink/blue bubbles. Pop 3 → game over |
+| 🎁 **Gift bubble** | Bonus points (+10 / +25) |
+| 💖 **Life bubble** | Rare! Grants an extra life |
+
+The game speeds up over time and the jellyfish population grows from 20% to
+40% of all bubbles. Best score is saved locally.
+
+## Screens
+
+1. **Loading** — the letters of *Bubble PoP* float up from the seabed, scatter,
+   then glide into place to form the title.
+2. **Home** — tagline + Start Game (design from Figma).
+3. **Instructions** — a retro Nintendo-style instruction booklet.
+4. **Game** — your camera feed with an ocean filter, corals, passing fish, and
+   bubbles rising from the deep.
+
+Every screen change is washed away by a cluster of rising bubbles.
+
+## Tech
+
+- **Hand tracking:** [MediaPipe Hands](https://developers.google.com/mediapipe)
+  (loaded from CDN, lite model). If the camera is blocked or the CDN is
+  unreachable, the game falls back to touch/click controls automatically.
+- **Sound:** all effects are synthesized live with the Web Audio API — zero
+  audio assets.
+- **Fonts:** Rubik Scribble, Alice, Alfa Slab One, Press Start 2P (Google Fonts).
 
 ## Run it
 
-Webcam access requires `localhost` or HTTPS (it will **not** work via `file://`).
-From this folder:
+Camera access needs a secure context, so serve the folder instead of opening
+the file directly:
 
 ```bash
 python3 -m http.server 8000
+# then open http://localhost:8000
 ```
 
-Then open <http://localhost:8000>:
-
-1. **Start Game** → allow the camera.
-2. Read the instructions → **Let's go**.
-3. Survive!
-
-(Any static server works — e.g. `npx serve`.)
-
-## Game flow
-
-```
-Start screen (animated title) → Start Game
-   → camera permission → Instructions → Let's go
-      → PLAY  (O₂ drains; pop bubbles, dodge jellyfish)
-         → Game over (rising bubble-wave) → Play again
-```
-
-## How it works
-
-Hand tracking uses [MediaPipe Hands](https://developers.google.com/mediapipe)
-(loaded from CDN, no install). Your **index fingertip** drives the on-screen
-cursor; touch a bubble or jellyfish to pop it. Up to **two hands** supported.
-
-Two decoupled loops run at once:
-
-1. **MediaPipe loop** — detects the hand each frame and writes the fingertip
-   into a shared `cursors` array.
-2. **Game loop** (`requestAnimationFrame`) — drains O₂, spawns/moves bubbles &
-   jellyfish, checks collisions, and renders the underwater scene to canvas.
-
-All visuals (bubbles, jellyfish, coral, seaweed, light rays) are drawn
-procedurally on `<canvas>`; all sounds are synthesized with WebAudio. The
-underwater colour palette comes from the project's Figma design.
+Works on desktop and mobile browsers.
 
 ## File structure
 
 ```
 BubblePop/
-├── index.html   screens (start / instructions / game-over), HUD, canvas, video
-├── style.css    underwater theme, animated title, buttons, HUD
-├── game.js      state machine, spawning, physics, collision, render, sound, hand tracking
-└── README.md    this file
+├── index.html   all screens: home, instructions, game, overlays
+├── style.css    Figma-matched theme, retro manual, HUD, transitions
+├── game.js      letter intro, bubble engine, hand tracking, sound, difficulty
+└── assets/      aquarium background (from the Figma design)
 ```
-
-## Tech
-
-Plain HTML / CSS / JS + MediaPipe Hands (CDN). No build step, no dependencies.
