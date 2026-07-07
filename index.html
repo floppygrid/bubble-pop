@@ -111,19 +111,29 @@
         <span id="hudScore" class="hud-value">0</span>
       </div>
       <div class="hud-chip hud-lives" id="hudLives" aria-label="lives"></div>
-      <div class="hud-chip hud-best">
-        <span class="hud-label">BEST</span>
-        <span id="hudBest" class="hud-value">0</span>
+      <div class="hud-right">
+        <div class="hud-chip hud-best">
+          <span class="hud-label">BEST</span>
+          <span id="hudBest" class="hud-value">0</span>
+        </div>
+        <div class="hud-controls">
+          <button id="btnMute" class="btn-pix" type="button" aria-label="sound on/off"></button>
+          <button id="btnPause" class="btn-pix" type="button" aria-label="pause/resume"></button>
+        </div>
       </div>
     </div>
-    <button id="btnMute" class="btn-round" type="button" aria-label="mute">🔊</button>
 
     <!-- countdown -->
     <div id="countdown" class="countdown" hidden></div>
 
+    <!-- paused -->
+    <div id="pausedOverlay" class="countdown paused" hidden><span>PAUSED</span></div>
+
     <!-- jellyfish hit flash -->
     <div id="skullFlash" class="skull-flash" hidden>
-      <div class="skull">☠️</div>
+      <div class="skull">
+        <svg viewBox="0 0 8 8" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><g fill="#ffffff"><rect x="2" y="0" width="4" height="1"/><rect x="1" y="1" width="6" height="1"/><rect x="1" y="2" width="1" height="2"/><rect x="3" y="2" width="2" height="2"/><rect x="6" y="2" width="1" height="2"/><rect x="1" y="4" width="6" height="1"/><rect x="2" y="5" width="4" height="1"/><rect x="2" y="6" width="1" height="1"/><rect x="4" y="6" width="1" height="1"/></g></svg>
+      </div>
     </div>
 
     <!-- camera permission helper -->
@@ -138,7 +148,9 @@
     <!-- game over -->
     <div id="gameOver" class="game-over" hidden>
       <div class="go-card">
-        <div class="go-skull">☠️</div>
+        <div class="go-skull">
+          <svg viewBox="0 0 8 8" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><g fill="#2a2a2a"><rect x="2" y="0" width="4" height="1"/><rect x="1" y="1" width="6" height="1"/><rect x="1" y="2" width="1" height="2"/><rect x="3" y="2" width="2" height="2"/><rect x="6" y="2" width="1" height="2"/><rect x="1" y="4" width="6" height="1"/><rect x="2" y="5" width="4" height="1"/><rect x="2" y="6" width="1" height="1"/><rect x="4" y="6" width="1" height="1"/></g></svg>
+        </div>
         <h2 class="go-title">GAME OVER</h2>
         <p class="go-sub">The jellyfish got you…</p>
         <div class="go-scores">
@@ -156,6 +168,9 @@
 
   <!-- ══════════════ BUBBLE WASH TRANSITION ══════════════ -->
   <div id="bubbleWash" class="bubble-wash" aria-hidden="true"></div>
+
+  <!-- global sound toggle (home & instructions) -->
+  <button id="btnMuteMenu" class="btn-pix btn-pix-paper" type="button" aria-label="sound on/off"></button>
 
   <script src="game.js"></script>
 </body>

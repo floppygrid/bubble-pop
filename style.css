@@ -387,24 +387,24 @@ button { font: inherit; cursor: pointer; }
   inset: 0;
   background:
     /* corner vignette — draws the eye to the player in the middle */
-    radial-gradient(130% 130% at 50% 42%, transparent 48%, rgba(3, 18, 34, 0.62) 100%),
-    /* sunlit surface above, deep blue below */
+    radial-gradient(130% 130% at 50% 42%, transparent 48%, rgba(2, 16, 44, 0.64) 100%),
+    /* sunlit surface above, beautiful ocean blue below */
     linear-gradient(
       180deg,
-      rgba(190, 235, 250, 0.16) 0%,
-      rgba(90, 170, 205, 0.26) 35%,
-      rgba(28, 100, 145, 0.45) 68%,
-      rgba(6, 38, 72, 0.72) 100%
+      rgba(165, 225, 255, 0.2) 0%,
+      rgba(60, 150, 215, 0.32) 35%,
+      rgba(18, 90, 170, 0.5) 68%,
+      rgba(4, 35, 95, 0.76) 100%
     );
   mix-blend-mode: multiply;
   pointer-events: none;
 }
 /* no camera → the fallback gradient is the scene; keep it bright & friendly */
-#screen-game.no-cam .ocean-tint { mix-blend-mode: normal; opacity: 0.25; }
+#screen-game.no-cam .ocean-tint { mix-blend-mode: normal; opacity: 0.3; }
 #screen-game.no-cam .ocean-fallback {
   background:
-    radial-gradient(120% 90% at 50% -10%, #d8f2f8 0%, transparent 55%),
-    linear-gradient(180deg, #a5dbe8 0%, #58a8c2 45%, #2a7794 80%, #175a75 100%);
+    radial-gradient(120% 90% at 50% -10%, #d4f0fc 0%, transparent 55%),
+    linear-gradient(180deg, #9cd6f2 0%, #4a9fd8 45%, #2071ad 80%, #114a80 100%);
 }
 .light-rays {
   position: absolute;
@@ -436,6 +436,7 @@ button { font: inherit; cursor: pointer; }
   from { transform: translateX(var(--fx0)) translateY(0) scaleX(var(--fdir)); }
   to   { transform: translateX(var(--fx1)) translateY(var(--fy1)) scaleX(var(--fdir)); }
 }
+#screen-game.is-paused .fish { animation-play-state: paused; }
 
 /* coral silhouettes */
 .coral {
@@ -465,37 +466,37 @@ button { font: inherit; cursor: pointer; }
 /* HUD */
 .hud {
   position: absolute;
-  top: max(10px, env(safe-area-inset-top));
-  left: 10px;
-  right: 10px;
+  top: max(22px, calc(env(safe-area-inset-top) + 10px));
+  left: max(20px, env(safe-area-inset-left));
+  right: max(20px, env(safe-area-inset-right));
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   pointer-events: none;
   z-index: 5;
 }
 .hud-chip {
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: rgba(10, 40, 58, 0.62);
-  border: 2px solid rgba(255, 255, 255, 0.75);
-  border-radius: 12px;
-  padding: 7px 13px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  gap: 10px;
+  background: rgba(8, 34, 56, 0.68);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 14px;
+  padding: 12px 18px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
 }
 .hud-label {
   font-family: 'Press Start 2P', monospace;
-  font-size: clamp(7px, 1.6vw, 10px);
+  font-size: clamp(8px, 1.9vw, 12px);
   color: var(--candy);
   letter-spacing: 1px;
 }
 .hud-value {
   font-family: 'Press Start 2P', monospace;
-  font-size: clamp(13px, 2.8vw, 20px);
+  font-size: clamp(15px, 3.4vw, 24px);
   color: #fff;
   line-height: 1.2;
   min-width: 2ch;
@@ -506,24 +507,50 @@ button { font: inherit; cursor: pointer; }
 @keyframes score-bump {
   40% { transform: scale(1.35); color: #ffe08a; }
 }
-.hud-lives { gap: 4px; font-size: clamp(15px, 3vw, 22px); line-height: 1; }
-.hud-lives .heart { filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4)); transition: transform 0.2s ease; }
-.hud-lives .heart.lost { filter: grayscale(1) opacity(0.35); transform: scale(0.85); }
+.hud-lives { gap: 6px; }
+.hud-lives .heart { display: block; width: clamp(20px, 3.8vw, 28px); filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45)); transition: transform 0.2s ease; }
+.hud-lives .heart svg { display: block; width: 100%; height: auto; }
+.hud-lives .heart.lost { transform: scale(0.85); }
 .hud-lives .heart.gain { animation: score-bump 0.4s ease; }
 
-.btn-round {
-  position: absolute;
-  right: 10px;
-  bottom: max(12px, env(safe-area-inset-bottom));
-  z-index: 6;
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.75);
-  background: rgba(10, 40, 58, 0.62);
-  font-size: 20px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+.hud-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
 }
+.hud-controls { display: flex; gap: 10px; pointer-events: auto; }
+
+/* pixel icon buttons */
+.btn-pix {
+  width: clamp(44px, 8vw, 52px);
+  height: clamp(44px, 8vw, 52px);
+  display: grid;
+  place-items: center;
+  padding: 10px;
+  background: rgba(8, 34, 56, 0.68);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 12px;
+  color: #fff;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+  transition: transform 0.12s ease;
+}
+.btn-pix:hover { transform: translateY(-2px); }
+.btn-pix:active { transform: translateY(1px) scale(0.94); }
+.btn-pix svg { width: 100%; height: 100%; fill: currentColor; display: block; }
+
+/* paper variant — floats over the home / instructions screens */
+.btn-pix-paper {
+  position: fixed;
+  top: max(14px, env(safe-area-inset-top));
+  right: max(14px, env(safe-area-inset-right));
+  z-index: 40;
+  background: var(--paper);
+  color: #2a2a2a;
+  border: 3px solid #2a2a2a;
+  box-shadow: 0 4px 0 #2a2a2a, 0 10px 24px rgba(0, 0, 0, 0.3);
+}
+.btn-pix-paper:active { box-shadow: 0 1px 0 #2a2a2a; }
 
 /* countdown */
 .countdown {
@@ -539,6 +566,8 @@ button { font: inherit; cursor: pointer; }
   pointer-events: none;
 }
 .countdown span { animation: count-pop 0.9s ease both; display: block; }
+.countdown.paused { font-size: clamp(22px, 6vw, 48px); letter-spacing: 4px; }
+.countdown.paused span { animation: none; }
 @keyframes count-pop {
   0% { transform: scale(2.2); opacity: 0; }
   25% { transform: scale(1); opacity: 1; }
@@ -558,10 +587,11 @@ button { font: inherit; cursor: pointer; }
   pointer-events: none;
 }
 .skull-flash .skull {
-  font-size: clamp(90px, 26vw, 220px);
+  width: clamp(90px, 26vw, 200px);
   filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.6));
   animation: skull-in 0.65s ease both;
 }
+.skull-flash .skull svg { display: block; width: 100%; height: auto; }
 @keyframes flash-fade { 0% { opacity: 0; } 18% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes skull-in {
   0% { transform: scale(0.3) rotate(-14deg); }
@@ -621,7 +651,8 @@ button { font: inherit; cursor: pointer; }
 @keyframes go-in {
   from { transform: scale(0.6) translateY(40px); opacity: 0; }
 }
-.go-skull { font-size: clamp(44px, 9vw, 64px); }
+.go-skull { width: clamp(44px, 9vw, 64px); margin: 0 auto; }
+.go-skull svg { display: block; width: 100%; height: auto; }
 .go-title {
   font-family: 'Press Start 2P', monospace;
   font-size: clamp(18px, 4.5vw, 28px);

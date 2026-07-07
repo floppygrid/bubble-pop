@@ -16,8 +16,9 @@ const getBest = () => Number(localStorage.getItem(BEST_KEY) || 0);
 
 /* ────────────────────────── AUDIO ────────────────────────────── */
 
+const MUTE_KEY = 'bubblepop.muted';
 let actx = null;
-let muted = false;
+let muted = localStorage.getItem(MUTE_KEY) === '1';
 
 function audio() {
   if (!actx) {
@@ -32,6 +33,7 @@ function audio() {
 function tone(f0, f1, dur, { type = 'sine', gain = 0.18, at = 0 } = {}) {
   const ctx = audio();
   if (!ctx || muted) return;
+  if (ctx.state !== 'running') return; // don't queue notes while autoplay-blocked
   const t0 = ctx.currentTime + at;
   const osc = ctx.createOscillator();
   const g = ctx.createGain();
@@ -49,6 +51,7 @@ function tone(f0, f1, dur, { type = 'sine', gain = 0.18, at = 0 } = {}) {
 function splash(dur = 0.5, { gain = 0.12, f = 900, at = 0 } = {}) {
   const ctx = audio();
   if (!ctx || muted) return;
+  if (ctx.state !== 'running') return;
   const t0 = ctx.currentTime + at;
   const len = Math.floor(ctx.sampleRate * dur);
   const buf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -92,12 +95,94 @@ const snd = {
     tone(go ? 880 : 520, go ? 880 : 520, go ? 0.35 : 0.12, { type: 'square', gain: 0.1 });
   },
   over() {
-    [392, 330, 262, 175].forEach((f, i) => tone(f, f * 0.97, 0.3, { type: 'triangle', gain: 0.16, at: i * 0.22 }));
+    // proper "you died" arcade jingle — descending steps + a low final thud
+    [523, 494, 440, 392, 330, 262].forEach((f, i) => tone(f, f * 0.99, 0.22, { type: 'square', gain: 0.12, at: i * 0.16 }));
+    tone(131, 92, 0.9, { type: 'triangle', gain: 0.16, at: 1.05 });
+  },
+  record() {
+    // NEW RECORD fanfare — rising run + sparkle
+    [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, f, 0.16, { type: 'square', gain: 0.12, at: i * 0.09 }));
+    tone(1568, 1568, 0.45, { type: 'triangle', gain: 0.12, at: 0.5 });
+    tone(2093, 2093, 0.3, { type: 'triangle', gain: 0.08, at: 0.62 });
   },
   wash() {
-    splash(1.1, { gain: 0.16, f: 500 });
+    // gamified wave — whoosh + rising bubble arpeggio
+    splash(1.1, { gain: 0.14, f: 500 });
+    [392, 523, 659, 784, 1047].forEach((f, i) => tone(f, f * 1.06, 0.13, { type: 'square', gain: 0.07, at: i * 0.07 }));
+  },
+  intro() {
+    // Nintendo-style "press start" jingle for the loading screen
+    [523, 659, 784, 1047].forEach((f, i) => tone(f, f, 0.16, { type: 'square', gain: 0.1, at: i * 0.12 }));
+    tone(1319, 1319, 0.4, { type: 'triangle', gain: 0.1, at: 0.52 });
+  },
+  blip(i) {
+    // a letter lands in the title
+    tone(440 + i * 65, 480 + i * 65, 0.09, { type: 'square', gain: 0.07 });
   },
 };
+
+/* tiny chiptune sequencer — melodies are just arrays of Hz (0 = rest) */
+const music = {
+  timer: null,
+  step: 0,
+  tracks: {
+    // cheerful reading-the-manual tune (C major pentatonic)
+    manual: {
+      tempo: 160,
+      lead: [659, 0, 784, 0, 880, 0, 784, 0, 659, 0, 523, 0, 587, 659, 587, 0],
+      bass: [262, 0, 196, 0, 220, 0, 196, 0, 175, 0, 262, 0, 196, 0, 131, 0],
+    },
+    // sparse deep-sea pulse under gameplay
+    game: {
+      tempo: 200,
+      lead: [0, 0, 0, 0, 880, 0, 0, 0, 0, 0, 0, 0, 1047, 0, 0, 0],
+      bass: [131, 0, 0, 0, 165, 0, 0, 0, 147, 0, 0, 0, 196, 0, 0, 0],
+    },
+  },
+  start(name) {
+    this.stop();
+    const t = this.tracks[name];
+    if (!t) return;
+    this.step = 0;
+    this.timer = setInterval(() => {
+      const i = this.step % t.lead.length;
+      if (t.lead[i]) tone(t.lead[i], t.lead[i], 0.13, { type: 'square', gain: 0.045 });
+      if (t.bass[i]) tone(t.bass[i], t.bass[i], 0.22, { type: 'triangle', gain: 0.075 });
+      this.step++;
+    }, t.tempo);
+  },
+  stop() {
+    clearInterval(this.timer);
+    this.timer = null;
+  },
+};
+
+/* ─────────────────── PIXEL ICONS ─────────────────────────────── */
+
+function pixSvg(rects, vb = '0 0 8 8') {
+  const body = rects
+    .map(([x, y, w = 1, h = 1]) => `<rect x="${x}" y="${y}" width="${w}" height="${h}"/>`)
+    .join('');
+  return `<svg viewBox="${vb}" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
+}
+
+const ICON = {
+  sndOn: pixSvg([[1, 3, 1, 2], [2, 2, 1, 4], [3, 1, 1, 6], [5, 2], [6, 3, 1, 2], [5, 5]]),
+  sndOff: pixSvg([[1, 3, 1, 2], [2, 2, 1, 4], [3, 1, 1, 6], [5, 2], [7, 2], [6, 3], [5, 4], [7, 4]]),
+  pause: pixSvg([[2, 1, 2, 6], [5, 1, 2, 6]]),
+  play: pixSvg([[2, 1, 1, 6], [3, 2, 1, 4], [4, 3, 1, 2]]),
+};
+
+function heartSVG(filled) {
+  const fill = filled ? '#ff3b5c' : 'rgba(255,255,255,0.30)';
+  const hi = filled ? '<rect x="1" y="1" width="1" height="1" fill="rgba(255,255,255,0.85)"/>' : '';
+  return (
+    `<svg viewBox="0 0 8 6" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">` +
+    `<g fill="${fill}"><rect x="1" y="0" width="2" height="1"/><rect x="5" y="0" width="2" height="1"/>` +
+    `<rect x="0" y="1" width="8" height="2"/><rect x="1" y="3" width="6" height="1"/>` +
+    `<rect x="2" y="4" width="4" height="1"/><rect x="3" y="5" width="2" height="1"/></g>${hi}</svg>`
+  );
+}
 
 /* ─────────────────── SCREENS & BUBBLE WASH ───────────────────── */
 
@@ -110,6 +195,8 @@ const screens = {
 function showScreen(name) {
   Object.values(screens).forEach((s) => s.classList.remove('is-active'));
   screens[name].classList.add('is-active');
+  // the floating speaker lives on menu screens; the game has its own in the HUD
+  $('#btnMuteMenu').hidden = name === 'game';
 }
 
 /** Full-screen rising bubble cluster; swaps content while covered. */
@@ -154,6 +241,8 @@ async function playIntro() {
   const H = window.innerHeight;
   const targets = [...homeTitle.children].filter((s) => !s.classList.contains('sp'));
 
+  snd.intro(); // silent until the browser allows audio (first tap/click)
+
   // one continuous journey per letter:
   // rise from the seabed → drift past its scatter spot → settle into the line
   const anims = WORD.map((ch, i) => {
@@ -177,7 +266,7 @@ async function playIntro() {
       ],
       { duration: 2600, delay: i * 65, fill: 'both' }
     );
-    return anim.finished.catch(() => {});
+    return anim.finished.then(() => snd.blip(i)).catch(() => {});
   });
 
   await Promise.all(anims);
@@ -208,6 +297,7 @@ function openInstructions() {
   }
   preloadHands(); // warm the hand-tracking model while the player reads
   showScreen('instructions');
+  music.start('manual');
 }
 
 /* ─────────────────────── GAME STATE ──────────────────────────── */
@@ -258,7 +348,7 @@ function difficulty() {
     life: 0.01,
     o2: 1 - jelly - 0.10,
     speed: lerp(1, 2.15, clamp(elapsed / 90, 0, 1)) + Math.max(0, elapsed - 90) * 0.003,
-    spawnMs: lerp(1050, 440, clamp(elapsed / 90, 0, 1)),
+    spawnMs: lerp(800, 420, clamp(elapsed / 90, 0, 1)),
   };
 }
 
@@ -270,8 +360,8 @@ const JELLY_TINTS = [
   [255, 255, 255], // deceptive white
 ];
 
-function spawnBubble() {
-  if (bubbles.length > 26) return;
+function spawnBubble(yOffset = 0) {
+  if (bubbles.length > 30) return;
   const d = difficulty();
   const roll = Math.random();
   let type;
@@ -285,9 +375,9 @@ function spawnBubble() {
   bubbles.push({
     type,
     x: rand(r + 6, W - r - 6),
-    y: H + r + 10,
+    y: H + r + 10 + yOffset,
     r,
-    vy: (0.11 * H + rand(-14, 22)) * d.speed,
+    vy: (0.121 * H + rand(-14, 24)) * d.speed,
     phase: rand(0, Math.PI * 2),
     wobAmp: rand(8, 26),
     wobSpd: rand(0.9, 1.7),
@@ -295,6 +385,48 @@ function spawnBubble() {
     giftValue: Math.random() < 0.6 ? 10 : 25,
     popped: false,
   });
+}
+
+/* pixel-art sprites drawn cell-by-cell on canvas */
+const GIFT_SPR = {
+  pal: { Y: '#ffd94a', P: '#ff8fa8', p: '#ff5d7e', W: 'rgba(255,255,255,0.85)' },
+  rows: [
+    '..Y..Y..',
+    '..YYYY..',
+    'PPPYYPPP',
+    'pWpYYppp',
+    'pppYYppp',
+    'pppYYppp',
+    'pppYYppp',
+    'pppppppp',
+  ],
+};
+const HEART_SPR = {
+  pal: { R: '#ff3b5c', W: 'rgba(255,255,255,0.9)' },
+  rows: [
+    '.RR..RR.',
+    'RWRRRRRR',
+    'RRRRRRRR',
+    '.RRRRRR.',
+    '..RRRR..',
+    '...RR...',
+  ],
+};
+
+function drawSprite(spr, cx, cy, size) {
+  const h = spr.rows.length;
+  const w = spr.rows[0].length;
+  const cell = size / Math.max(w, h);
+  const ox = cx - (w * cell) / 2;
+  const oy = cy - (h * cell) / 2;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const c = spr.pal[spr.rows[y][x]];
+      if (!c) continue;
+      ctx2d.fillStyle = c;
+      ctx2d.fillRect(ox + x * cell, oy + y * cell, cell + 0.35, cell + 0.35);
+    }
+  }
 }
 
 function drawBubbleBase(b, fill) {
@@ -320,13 +452,17 @@ function drawBubble(b, t) {
   ctx2d.save();
   if (b.type === 'o2') {
     drawBubbleBase(b, 0.26);
+    // pixel-font O2 — big O, small lowered 2 (Press Start 2P has no subscript glyph)
+    const fs = Math.round(b.r * 0.48);
     ctx2d.fillStyle = 'rgba(255,255,255,0.95)';
-    ctx2d.font = `${Math.round(b.r * 0.62)}px 'Alfa Slab One', serif`;
     ctx2d.textAlign = 'center';
     ctx2d.textBaseline = 'middle';
     ctx2d.shadowColor = 'rgba(30,106,134,0.6)';
     ctx2d.shadowBlur = 6;
-    ctx2d.fillText('O₂', b.x, b.y + b.r * 0.05);
+    ctx2d.font = `${fs}px 'Press Start 2P', monospace`;
+    ctx2d.fillText('O', b.x - fs * 0.32, b.y);
+    ctx2d.font = `${Math.round(fs * 0.62)}px 'Press Start 2P', monospace`;
+    ctx2d.fillText('2', b.x + fs * 0.45, b.y + fs * 0.32);
   } else if (b.type === 'jelly') {
     const [cr, cg, cb] = b.tint;
     // tentacles first (peek from under the bubble)
@@ -358,10 +494,8 @@ function drawBubble(b, t) {
     ctx2d.fill();
   } else {
     drawBubbleBase(b, 0.18);
-    ctx2d.font = `${Math.round(b.r * 0.95)}px system-ui`;
-    ctx2d.textAlign = 'center';
-    ctx2d.textBaseline = 'middle';
-    ctx2d.fillText(b.type === 'gift' ? '🎁' : '💖', b.x, b.y + b.r * 0.06);
+    if (b.type === 'gift') drawSprite(GIFT_SPR, b.x, b.y, b.r * 1.15);
+    else drawSprite(HEART_SPR, b.x, b.y, b.r * 1.05);
   }
   ctx2d.restore();
 }
@@ -444,7 +578,7 @@ function renderLives(gained) {
     const s = document.createElement('span');
     s.className = 'heart' + (i >= lives ? ' lost' : '');
     if (gained && i === lives - 1) s.classList.add('gain');
-    s.textContent = i >= lives ? '🖤' : '❤️';
+    s.innerHTML = heartSVG(i < lives);
     wrap.appendChild(s);
   }
 }
@@ -771,6 +905,19 @@ function resetState() {
   renderLives();
 }
 
+function beginRun() {
+  // opening burst so the sea is alive from the first second
+  spawnBubble(0);
+  spawnBubble(H * 0.14);
+  spawnBubble(H * 0.28);
+  spawnTimer = 350;
+  running = true;
+  lastT = performance.now();
+  rafId = requestAnimationFrame(frame);
+  music.start('game');
+  updatePauseIcon();
+}
+
 async function startGame() {
   resizeCanvas();
   initDust();
@@ -778,24 +925,53 @@ async function startGame() {
   fishLayer.innerHTML = '';
   await startCamera();
   await countdown();
-  running = true;
-  lastT = performance.now();
-  rafId = requestAnimationFrame(frame);
+  beginRun();
 }
 
 function endGame() {
   running = false;
+  userPaused = false;
   cancelAnimationFrame(rafId);
-  snd.over();
+  music.stop();
 
   const best = getBest();
   const isRecord = score > best;
   if (isRecord) localStorage.setItem(BEST_KEY, String(score));
+  if (isRecord) snd.record(); else snd.over();
 
   $('#goScore').textContent = score;
   $('#goBest').textContent = Math.max(best, score);
   $('#goRecord').hidden = !isRecord;
   setTimeout(() => { $('#gameOver').hidden = false; }, 750);
+}
+
+/* ─────────────────── PAUSE / RESUME ──────────────────────────── */
+
+let userPaused = false;
+
+function pauseGame() {
+  if (running !== true) return;
+  running = 'paused';
+  cancelAnimationFrame(rafId);
+  music.stop();
+  screens.game.classList.add('is-paused');
+  $('#pausedOverlay').hidden = false;
+  updatePauseIcon();
+}
+
+function resumeGame() {
+  if (running !== 'paused') return;
+  screens.game.classList.remove('is-paused');
+  $('#pausedOverlay').hidden = true;
+  running = true;
+  lastT = performance.now();
+  rafId = requestAnimationFrame(frame);
+  music.start('game');
+  updatePauseIcon();
+}
+
+function updatePauseIcon() {
+  $('#btnPause').innerHTML = running === 'paused' ? ICON.play : ICON.pause;
 }
 
 /* ─────────────────────── WIRING ──────────────────────────────── */
@@ -807,6 +983,7 @@ $('#btnStart').addEventListener('click', async () => {
 
 $('#btnPlay').addEventListener('click', async () => {
   snd.click();
+  music.stop();
   await bubbleWash(() => {
     showScreen('game');
     startGame();
@@ -819,16 +996,16 @@ $('#btnRetry').addEventListener('click', async () => {
     resetState();
     if (!camStream) await startCamera();
     await countdown();
-    running = true;
-    lastT = performance.now();
-    rafId = requestAnimationFrame(frame);
+    beginRun();
   });
 });
 
 $('#btnHome').addEventListener('click', async () => {
   snd.click();
+  music.stop();
   await bubbleWash(() => {
     running = false;
+    userPaused = false;
     cancelAnimationFrame(rafId);
     stopCamera();
     $('#gameOver').hidden = true;
@@ -837,20 +1014,39 @@ $('#btnHome').addEventListener('click', async () => {
   });
 });
 
-$('#btnMute').addEventListener('click', (e) => {
+/* sound toggle — one state, two buttons (menu + game HUD) */
+function updateSoundIcons() {
+  const icon = muted ? ICON.sndOff : ICON.sndOn;
+  $('#btnMute').innerHTML = icon;
+  $('#btnMuteMenu').innerHTML = icon;
+}
+
+function toggleMute() {
   muted = !muted;
-  e.currentTarget.textContent = muted ? '🔇' : '🔊';
+  localStorage.setItem(MUTE_KEY, muted ? '1' : '0');
+  updateSoundIcons();
+  if (!muted) snd.click(); // little confirmation beep when unmuting
+}
+
+$('#btnMute').addEventListener('click', toggleMute);
+$('#btnMuteMenu').addEventListener('click', toggleMute);
+
+$('#btnPause').addEventListener('click', () => {
+  snd.click();
+  if (running === true) {
+    userPaused = true;
+    pauseGame();
+  } else if (running === 'paused') {
+    userPaused = false;
+    resumeGame();
+  }
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && running) {
-    running = false;
-    cancelAnimationFrame(rafId);
-    running = 'paused';
-  } else if (running === 'paused') {
-    running = true;
-    lastT = performance.now();
-    rafId = requestAnimationFrame(frame);
+  if (document.hidden) {
+    pauseGame(); // no-op unless mid-run
+  } else if (!userPaused) {
+    resumeGame(); // auto-resume only if the pause wasn't the player's choice
   }
 });
 
@@ -858,6 +1054,11 @@ document.addEventListener('visibilitychange', () => {
 
 resizeCanvas();
 $('#hudBest').textContent = getBest();
+updateSoundIcons();
+updatePauseIcon();
+
+// browsers unlock audio on the first user gesture — catch it wherever it lands
+document.addEventListener('pointerdown', () => audio(), { once: true });
 
 // wait for the scribble font so the letters render correctly, then play
 if (document.fonts && document.fonts.ready) {
