@@ -302,8 +302,7 @@ function openInstructions() {
   } else {
     box.hidden = true;
   }
-  preloadHands(); // warm the tracking models while the player reads
-  preloadFace();
+  preloadVision(); // warm the hand + face models while the player reads
   showScreen('instructions');
   music.start('manual');
 }
@@ -331,12 +330,12 @@ let dust = [];
 let pointers = [];       // smoothed fingertip cursors
 let camStream = null;
 let fishTimer = 0;
-let handsApi = null;
-let handsReady = false;
+let handLandmarker = null;
+let faceLandmarker = null;
+let visionReady = false;
 let handLoopOn = false;
-let faceApi = null;
-let faceReady = false;
 let visionTick = 0;
+let lastVideoTime = -1;
 const mouth = { open: false, x: 0, y: 0, lastEmit: 0, lastSnd: 0 };
 
 function resizeCanvas() {
@@ -615,35 +614,47 @@ canvas.addEventListener('pointerdown', (e) => {
   popAt(e.clientX, e.clientY, 14);
 });
 
-/* MediaPipe Hands — loaded lazily from CDN; the game works without it. */
-function preloadHands() {
-  if (handsApi || preloadHands.loading) return;
-  preloadHands.loading = true;
-  const s = document.createElement('script');
-  s.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js';
-  s.onload = () => {
+/* MediaPipe Tasks Vision — hand + face landmarkers in one runtime.
+   (The legacy Hands/FaceMesh scripts clobber each other's globals when
+   loaded together; the Tasks API is built to run both at once.) */
+const VISION_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+
+async function preloadVision() {
+  if (preloadVision.started) return;
+  preloadVision.started = true;
+  try {
+    const vision = await import(`${VISION_CDN}/vision_bundle.mjs`);
+    const fileset = await vision.FilesetResolver.forVisionTasks(`${VISION_CDN}/wasm`);
+
+    const build = (delegate) =>
+      Promise.all([
+        vision.HandLandmarker.createFromOptions(fileset, {
+          baseOptions: { modelAssetPath: HAND_MODEL, delegate },
+          runningMode: 'VIDEO',
+          numHands: 2,
+          minHandDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+        }),
+        vision.FaceLandmarker.createFromOptions(fileset, {
+          baseOptions: { modelAssetPath: FACE_MODEL, delegate },
+          runningMode: 'VIDEO',
+          numFaces: 1,
+          outputFaceBlendshapes: true,
+        }),
+      ]);
+
     try {
-      handsApi = new Hands({
-        locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`,
-      });
-      handsApi.setOptions({
-        maxNumHands: 2,
-        modelComplexity: 0,
-        minDetectionConfidence: 0.55,
-        minTrackingConfidence: 0.5,
-      });
-      handsApi.onResults(onHands);
-      // warm the model now so tracking is instant when the camera opens
-      const warm = handsApi.initialize ? handsApi.initialize() : Promise.resolve();
-      Promise.resolve(warm)
-        .then(() => { handsReady = true; })
-        .catch((e) => console.warn('Hands warm-up failed — touch mode only', e));
+      [handLandmarker, faceLandmarker] = await build('GPU');
     } catch (e) {
-      console.warn('Hands init failed — touch mode only', e);
+      console.warn('GPU delegate unavailable, falling back to CPU', e);
+      [handLandmarker, faceLandmarker] = await build('CPU');
     }
-  };
-  s.onerror = () => console.warn('Hands CDN unavailable — touch mode only');
-  document.head.appendChild(s);
+    visionReady = true;
+  } catch (e) {
+    console.warn('Vision models failed to load — touch mode only', e);
+  }
 }
 
 /** Map a normalized video landmark to screen px (mirrored, object-fit: cover). */
@@ -657,13 +668,7 @@ function videoToScreen(nx, ny) {
 }
 
 function onHands(res) {
-  const found = [];
-  if (res.multiHandLandmarks) {
-    for (const lm of res.multiHandLandmarks) {
-      const tip = lm[8]; // index fingertip
-      found.push(videoToScreen(tip.x, tip.y));
-    }
-  }
+  const found = (res.landmarks || []).map((lm) => videoToScreen(lm[8].x, lm[8].y)); // index fingertips
   // smooth against previous cursors
   pointers = found.map((p, i) => {
     const prev = pointers[i];
@@ -673,64 +678,40 @@ function onHands(res) {
   });
 }
 
-async function handLoop() {
-  if (!handLoopOn) return;
-  if (camStream && video.readyState >= 2) {
-    visionTick++;
-    if (handsReady) {
-      try { await handsApi.send({ image: video }); } catch (e) { /* skip frame */ }
-    }
-    // the mouth doesn't need 30fps — check every 3rd frame to stay light
-    if (faceReady && visionTick % 3 === 0) {
-      try { await faceApi.send({ image: video }); } catch (e) { /* skip frame */ }
-    }
-  }
-  requestAnimationFrame(handLoop);
-}
-
-/* MediaPipe FaceMesh — open your mouth to blow a stream of tiny bubbles */
-function preloadFace() {
-  if (faceApi || preloadFace.loading) return;
-  preloadFace.loading = true;
-  const s = document.createElement('script');
-  s.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.min.js';
-  s.onload = () => {
-    try {
-      faceApi = new FaceMesh({
-        locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`,
-      });
-      faceApi.setOptions({
-        maxNumFaces: 1,
-        refineLandmarks: false,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-      });
-      faceApi.onResults(onFace);
-      const warm = faceApi.initialize ? faceApi.initialize() : Promise.resolve();
-      Promise.resolve(warm)
-        .then(() => { faceReady = true; })
-        .catch((e) => console.warn('FaceMesh warm-up failed', e));
-    } catch (e) {
-      console.warn('FaceMesh init failed — no mouth bubbles', e);
-    }
-  };
-  s.onerror = () => console.warn('FaceMesh CDN unavailable — no mouth bubbles');
-  document.head.appendChild(s);
-}
-
 function onFace(res) {
-  const lm = res.multiFaceLandmarks && res.multiFaceLandmarks[0];
+  const lm = res.faceLandmarks && res.faceLandmarks[0];
   if (!lm) {
     mouth.open = false;
     return;
   }
-  // lip gap (landmarks 13/14) relative to face height (forehead 10 → chin 152)
-  const gap = Math.hypot(lm[13].x - lm[14].x, lm[13].y - lm[14].y);
-  const face = Math.hypot(lm[10].x - lm[152].x, lm[10].y - lm[152].y);
-  mouth.open = face > 0 && gap / face > 0.08;
+  const bs = res.faceBlendshapes && res.faceBlendshapes[0];
+  const jaw = bs && bs.categories.find((c) => c.categoryName === 'jawOpen');
+  if (jaw) {
+    mouth.open = jaw.score > 0.35;
+  } else {
+    // fallback: lip gap (13/14) relative to face height (forehead 10 → chin 152)
+    const gap = Math.hypot(lm[13].x - lm[14].x, lm[13].y - lm[14].y);
+    const face = Math.hypot(lm[10].x - lm[152].x, lm[10].y - lm[152].y);
+    mouth.open = face > 0 && gap / face > 0.08;
+  }
   const p = videoToScreen((lm[13].x + lm[14].x) / 2, (lm[13].y + lm[14].y) / 2);
   mouth.x = p.x;
   mouth.y = p.y;
+}
+
+function handLoop() {
+  if (!handLoopOn) return;
+  if (visionReady && camStream && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    const ts = performance.now();
+    try {
+      onHands(handLandmarker.detectForVideo(video, ts));
+      visionTick++;
+      // the mouth doesn't need every frame — every 2nd keeps it light
+      if (visionTick % 2 === 0) onFace(faceLandmarker.detectForVideo(video, ts));
+    } catch (e) { /* skip frame */ }
+  }
+  requestAnimationFrame(handLoop);
 }
 
 /* ───────────────────── CAMERA SETUP ──────────────────────────── */
@@ -753,6 +734,7 @@ async function startCamera() {
     video.classList.add('live');
     screens.game.classList.remove('no-cam');
     notice.hidden = true;
+    lastVideoTime = -1;
     handLoopOn = true;
     handLoop();
   } catch (err) {
