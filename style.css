@@ -707,6 +707,32 @@ button { font: inherit; cursor: pointer; }
 }
 @keyframes badge-pop { 0% { transform: scale(0); } 70% { transform: scale(1.25); } 100% { transform: scale(1); } }
 
+/* victory confetti */
+.confetti { position: fixed; inset: 0; z-index: 15; pointer-events: none; overflow: hidden; }
+.confetti i {
+  position: absolute;
+  top: -20px;
+  width: 10px; height: 14px;
+  border-radius: 2px;
+  opacity: 0.95;
+  animation: confetti-fall linear forwards;
+}
+@keyframes confetti-fall {
+  0% { transform: translate(0, -20px) rotate(0deg); opacity: 1; }
+  100% { transform: translate(var(--dx, 0), 108vh) rotate(720deg); opacity: 0.9; }
+}
+
+/* victory game-over card */
+.go-card.win {
+  border-color: #d9a300;
+  background: linear-gradient(180deg, #fff7e0 0%, var(--paper) 60%);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5), 0 0 0 4px #d9a300, 0 0 40px rgba(255, 210, 60, 0.5);
+}
+.go-card.win .go-title { color: #d9a300; }
+.go-card.win .go-skull svg { display: none; }
+.go-card.win .go-skull { display: block; text-align: center; }
+.go-card.win .go-skull::after { content: '🏆'; font-size: clamp(44px, 9vw, 64px); line-height: 1; }
+
 /* help popup (in-game how-to-play) */
 .help-popup {
   position: fixed;

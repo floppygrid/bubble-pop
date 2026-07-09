@@ -158,6 +158,13 @@ const snd = {
     tone(1568, 1568, 0.6, { type: 'triangle', gain: 0.1, at: 0.6 });
     splash(0.4, { gain: 0.1, f: 2600, at: 0.5 });
   },
+  victory() {
+    // big triumphant "YOU SURVIVED" fanfare
+    const mel = [523, 523, 523, 523, 415, 466, 523, 466, 523];
+    mel.forEach((f, i) => tone(f, f, 0.2, { type: 'square', gain: 0.14, at: i * 0.16 }));
+    [1047, 1319, 1568, 2093].forEach((f, i) => tone(f, f, 0.7, { type: 'triangle', gain: 0.11, at: 1.5 + i * 0.06 }));
+    splash(0.6, { gain: 0.12, f: 3000, at: 1.5 });
+  },
 };
 
 /* ─────────────── DAILY CHALLENGE SEED ────────────────────────── */
@@ -453,6 +460,7 @@ const ACHIEVEMENTS = [
   { id: 'gold', name: 'Gold Rush', test: (s) => s.gold >= 1 },
   { id: 'dodger', name: 'Boss Dodger', test: (s) => s.dodged >= 1 },
   { id: 'halfk', name: 'Half-K Club', test: (s) => s.score >= 500 },
+  { id: 'survivor', name: 'Survivor', test: (s) => s.survived },
 ];
 const getBadges = () => { try { return JSON.parse(localStorage.getItem(BADGE_KEY)) || []; } catch { return []; } };
 const getTop5 = () => { try { return JSON.parse(localStorage.getItem(TOP5_KEY)) || []; } catch { return []; } };
@@ -494,10 +502,12 @@ function difficulty() {
 }
 
 /* ─────────────────────── LEVELS ──────────────────────────────── */
-// Score thresholds: level 2 at 50, then 150, 300, 500…
-const LEVEL_SCORES = [0, 50, 150, 300, 500, 800];
-const jellySpeedMult = () => 1 + (level - 1) * 0.22;  // jellies get faster each level
-const bossSpeedMult = () => 1 + (level - 1) * 0.35;   // boss gets meaner each level
+// Level 2 at 250, Level 3 at 500 — survive to 700 to win.
+const LEVEL_SCORES = [0, 250, 500];
+const WIN_SCORE = 700;
+let won = false;
+const jellySpeedMult = () => 1 + (level - 1) * 0.28;  // jellies get faster each level
+const bossSpeedMult = () => 1 + (level - 1) * 0.4;    // boss gets meaner each level
 
 function levelForScore(s) {
   let lv = 1;
@@ -512,10 +522,10 @@ function checkLevel() {
 }
 
 function onLevelUp() {
-  banner('LEVEL ' + level + '!', '#ffe08a');
+  banner(level >= 3 ? 'LEVEL 3 — FINAL DEPTHS!' : 'LEVEL ' + level + '!', '#ffe08a');
   snd.levelUp();
   // sink deeper: darken the water and reef more each level
-  screens.game.style.setProperty('--depth', Math.min((level - 1) * 0.18, 0.7));
+  screens.game.style.setProperty('--depth', Math.min((level - 1) * 0.28, 0.72));
   // celebratory ring of bubbles
   for (let i = 0; i < 22; i++) {
     const a = (i / 22) * Math.PI * 2;
@@ -524,6 +534,11 @@ function onLevelUp() {
   $('#hudLevel').textContent = 'Lv' + level;
   $('#hudLevel').hidden = false;
   bumpHud($('#hudLevel'));
+  // Level 3 warning: the final boss is coming
+  if (level >= 3) {
+    bossTimer = 4; // the final boss shows up quickly
+    setTimeout(() => { if (running === true) banner('⚠ FINAL BOSS AHEAD ⚠', '#ff8a8a'); }, 1600);
+  }
 }
 
 /* ────────────────────── BUBBLES ──────────────────────────────── */
@@ -580,14 +595,19 @@ function spawnBubble(yOffset = 0) {
   });
 }
 
-/* the boss — a huge jellyfish that crosses the screen; dodge it for +30 */
+/* the boss — a huge jellyfish that crosses the screen; dodge it for +30.
+   At Level 3 it becomes the FINAL BOSS: bigger, red, and it releases a
+   pack of little vicious jellies as it passes the middle. */
 function spawnBoss() {
   const dir = srand() < 0.5 ? 1 : -1;
   const vmin = Math.min(W, H);
-  const r = clamp(0.13 * vmin, 64, 110);
+  const finalBoss = level >= 3;
+  const r = clamp((finalBoss ? 0.17 : 0.13) * vmin, finalBoss ? 90 : 64, finalBoss ? 150 : 110);
   bubbles.push({
     type: 'jelly',
     boss: true,
+    finalBoss,
+    released: false,
     x: dir === 1 ? -r - 20 : W + r + 20,
     y: srange(0.22, 0.5) * H,
     r,
@@ -596,12 +616,41 @@ function spawnBoss() {
     phase: srange(0, Math.PI * 2),
     wobAmp: 20 + (level - 1) * 8, // bobs more wildly at higher levels
     wobSpd: 1.1 + (level - 1) * 0.3,
-    tint: [200, 120, 235], // regal purple — unmistakably the boss
+    tint: finalBoss ? [235, 70, 90] : [200, 120, 235], // final boss glows angry red
     giftKind: 'p10',
     popped: false,
   });
-  banner(level >= 2 ? 'ANGRY BOSS JELLY!' : 'BOSS JELLY!', '#e0a0ff');
+  banner(finalBoss ? '☠ FINAL BOSS JELLY ☠' : level >= 2 ? 'ANGRY BOSS JELLY!' : 'BOSS JELLY!', finalBoss ? '#ff7a8a' : '#e0a0ff');
   snd.boss();
+}
+
+/* a pack of tiny fast vicious jellies bursts from the final boss */
+function releaseViciousPack(bx, by) {
+  const n = 6;
+  const vmin = Math.min(W, H);
+  for (let i = 0; i < n; i++) {
+    const a = Math.PI + (i / (n - 1) - 0.5) * Math.PI * 1.1; // fan downward-ish
+    const sp = rand(0.16, 0.26) * H;
+    const r = clamp(0.035 * vmin, 18, 34);
+    bubbles.push({
+      type: 'jelly',
+      vicious: true,
+      x: clamp(bx + rand(-30, 30), r, W - r),
+      y: by + rand(-10, 10),
+      r,
+      vy: -Math.sin(a) * sp * 0.5 + rand(30, 90), // mostly rise, some spread
+      vx: Math.cos(a) * sp * 0.4,
+      drift: Math.cos(a) * 40,
+      phase: rand(0, Math.PI * 2),
+      wobAmp: rand(14, 30),
+      wobSpd: rand(1.6, 2.6),
+      tint: [255, 60, 70], // vicious red
+      giftKind: 'p10',
+      popped: false,
+    });
+  }
+  banner('SWARM!', '#ff6a7a');
+  snd.jelly();
 }
 
 /* pixel-art sprites drawn cell-by-cell on canvas */
@@ -794,7 +843,10 @@ function addPoints(n, b) {
     score = Math.max(0, score + n);
     $('#hudScore').textContent = score;
     bumpHud($('#hudScore'));
-    if (n > 0) checkLevel();
+    if (n > 0) {
+      checkLevel();
+      if (!won && score >= WIN_SCORE) { won = true; winGame(); }
+    }
   }
 }
 
@@ -1157,6 +1209,11 @@ function update(dtReal, t) {
     if (b.boss) {
       b.x += b.vx * dt;
       b.y += Math.sin(t * 1.1 + b.phase) * 20 * dt;
+      // final boss unleashes its vicious pack as it reaches mid-screen
+      if (b.finalBoss && !b.released && Math.abs(b.x - W / 2) < W * 0.12) {
+        b.released = true;
+        releaseViciousPack(b.x, b.y + b.r * 0.6);
+      }
       // dodged the boss? (fully crossed without being popped)
       if ((b.vx > 0 && b.x > W + b.r + 20) || (b.vx < 0 && b.x < -b.r - 20)) {
         if (!b.popped) {
@@ -1167,6 +1224,11 @@ function update(dtReal, t) {
           snd.dodge();
         }
       }
+    } else if (b.vicious) {
+      // little vicious jellies drift outward and rise fast
+      b.y -= b.vy * dt;
+      b.x += (b.drift + Math.sin(t * b.wobSpd + b.phase) * b.wobAmp) * dt;
+      b.x = clamp(b.x, b.r * 0.6, W - b.r * 0.6);
     } else {
       b.y -= b.vy * dt;
       b.x += Math.sin(t * b.wobSpd + b.phase) * b.wobAmp * dt;
@@ -1338,6 +1400,7 @@ function resetState() {
   bestCombo = 0;
   zoneIdx = 0;
   level = 1;
+  won = false;
   bossTimer = rand(30, 42);
   matchTime = MATCH_SECONDS;
   fx.frenzyT = 0; fx.slowT = 0; fx.shield = false;
@@ -1397,6 +1460,25 @@ async function startGame() {
   beginRun();
 }
 
+/** Persist a finished solo run; returns { best, isRecord, fresh badges }. */
+function saveRun() {
+  const best = getBest();
+  const isRecord = score > best;
+  if (isRecord) localStorage.setItem(BEST_KEY, String(score));
+
+  const top = getTop5();
+  top.push({ score, date: new Date().toISOString().slice(0, 10) });
+  top.sort((a, b) => b.score - a.score);
+  localStorage.setItem(TOP5_KEY, JSON.stringify(top.slice(0, 5)));
+
+  const runStats = { ...stats, score, time: elapsed, bestCombo, survived: won };
+  const had = getBadges();
+  const now = ACHIEVEMENTS.filter((a) => a.test(runStats)).map((a) => a.id);
+  const fresh = now.filter((id) => !had.includes(id));
+  localStorage.setItem(BADGE_KEY, JSON.stringify([...new Set([...had, ...now])]));
+  return { best, isRecord, fresh };
+}
+
 function endGame() {
   running = false;
   userPaused = false;
@@ -1405,25 +1487,11 @@ function endGame() {
 
   if (mode === '2p') return endMatch();
 
-  const best = getBest();
-  const isRecord = score > best;
-  if (isRecord) localStorage.setItem(BEST_KEY, String(score));
-
-  // record run into local top-5 leaderboard
-  const top = getTop5();
-  top.push({ score, date: new Date().toISOString().slice(0, 10) });
-  top.sort((a, b) => b.score - a.score);
-  localStorage.setItem(TOP5_KEY, JSON.stringify(top.slice(0, 5)));
-
-  // unlock achievements
-  const runStats = { ...stats, score, time: elapsed, bestCombo };
-  const had = getBadges();
-  const now = ACHIEVEMENTS.filter((a) => a.test(runStats)).map((a) => a.id);
-  const fresh = now.filter((id) => !had.includes(id));
-  localStorage.setItem(BADGE_KEY, JSON.stringify([...new Set([...had, ...now])]));
-
+  const { best, isRecord, fresh } = saveRun();
   if (isRecord) snd.record(); else snd.over();
 
+  const card = $('#gameOver .go-card');
+  if (card) card.classList.remove('win');
   $('#goTitle').textContent = 'GAME OVER';
   $('#goSub').textContent = 'The jellyfish got you…';
   $('#goScore').textContent = score;
@@ -1432,6 +1500,49 @@ function endGame() {
   renderGoBadges(fresh);
   renderShare(score);
   setTimeout(() => { $('#gameOver').hidden = false; }, 750);
+}
+
+/** Reached the win score — a grand victory. */
+function winGame() {
+  running = false;
+  userPaused = false;
+  cancelAnimationFrame(rafId);
+  music.stop();
+  snd.victory();
+
+  const { best, isRecord, fresh } = saveRun();
+
+  // grand celebration: rising bubbles + confetti burst
+  bubbleWash();
+  confettiBurst();
+
+  const card = $('#gameOver .go-card');
+  if (card) card.classList.add('win');
+  $('#goTitle').textContent = 'YOU SURVIVED!';
+  $('#goSub').textContent = 'You conquered the deep — legend! 🏆';
+  $('#goScore').textContent = score;
+  $('#goBest').textContent = Math.max(best, score);
+  $('#goRecord').hidden = !isRecord;
+  renderGoBadges(fresh);
+  renderShare(score);
+  setTimeout(() => { $('#gameOver').hidden = false; }, 1600);
+}
+
+/* colourful confetti rain for the victory screen */
+function confettiBurst() {
+  const layer = $('#confetti');
+  layer.innerHTML = '';
+  const colors = ['#ffd94a', '#29abf5', '#ff6a7a', '#3fae6a', '#e0619b', '#fff'];
+  for (let i = 0; i < 90; i++) {
+    const c = document.createElement('i');
+    c.style.left = Math.random() * 100 + 'vw';
+    c.style.background = colors[(Math.random() * colors.length) | 0];
+    c.style.setProperty('--dx', (Math.random() * 2 - 1) * 30 + 'vw');
+    c.style.animationDelay = Math.random() * 0.8 + 's';
+    c.style.animationDuration = 1.8 + Math.random() * 1.6 + 's';
+    layer.appendChild(c);
+  }
+  setTimeout(() => { layer.innerHTML = ''; }, 4000);
 }
 
 function endMatch() {
