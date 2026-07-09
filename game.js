@@ -150,6 +150,14 @@ const snd = {
   dodge() {
     [659, 784, 988].forEach((f, i) => tone(f, f, 0.12, { type: 'triangle', gain: 0.12, at: i * 0.07 }));
   },
+  levelUp() {
+    // grand "yey!" fanfare — triumphant rising run + shimmer
+    [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => tone(f, f, 0.15, { type: 'square', gain: 0.13, at: i * 0.08 }));
+    tone(1047, 1047, 0.5, { type: 'triangle', gain: 0.13, at: 0.5 });
+    tone(1319, 1319, 0.5, { type: 'triangle', gain: 0.11, at: 0.55 });
+    tone(1568, 1568, 0.6, { type: 'triangle', gain: 0.1, at: 0.6 });
+    splash(0.4, { gain: 0.1, f: 2600, at: 0.5 });
+  },
 };
 
 /* ─────────────── DAILY CHALLENGE SEED ────────────────────────── */
@@ -406,6 +414,23 @@ const fx = { frenzyT: 0, slowT: 0, shield: false };
 let zoneIdx = 0;
 let bossTimer = 0;
 let stats = { pops: 0, jellies: 0, gold: 0, dodged: 0 };
+let level = 1;
+
+/* item artwork drawn inside bubbles */
+const IMG = {};
+['treasure', 'coin', 'heart'].forEach((n) => {
+  const im = new Image();
+  im.src = `assets/items/${n}.png`;
+  IMG[n] = im;
+});
+function drawImageBubble(img, cx, cy, size) {
+  if (!img.complete || !img.naturalWidth) return false;
+  const ar = img.naturalWidth / img.naturalHeight;
+  let w = size, h = size;
+  if (ar > 1) h = size / ar; else w = size * ar;
+  ctx2d.drawImage(img, cx - w / 2, cy - h / 2, w, h);
+  return true;
+}
 
 const MATCH_SECONDS = 90;
 
@@ -468,6 +493,39 @@ function difficulty() {
   };
 }
 
+/* ─────────────────────── LEVELS ──────────────────────────────── */
+// Score thresholds: level 2 at 50, then 150, 300, 500…
+const LEVEL_SCORES = [0, 50, 150, 300, 500, 800];
+const jellySpeedMult = () => 1 + (level - 1) * 0.22;  // jellies get faster each level
+const bossSpeedMult = () => 1 + (level - 1) * 0.35;   // boss gets meaner each level
+
+function levelForScore(s) {
+  let lv = 1;
+  for (let i = 1; i < LEVEL_SCORES.length; i++) if (s >= LEVEL_SCORES[i]) lv = i + 1;
+  return lv;
+}
+
+function checkLevel() {
+  if (mode === '2p') return;
+  const nl = levelForScore(score);
+  if (nl > level) { level = nl; onLevelUp(); }
+}
+
+function onLevelUp() {
+  banner('LEVEL ' + level + '!', '#ffe08a');
+  snd.levelUp();
+  // sink deeper: darken the water and reef more each level
+  screens.game.style.setProperty('--depth', Math.min((level - 1) * 0.18, 0.7));
+  // celebratory ring of bubbles
+  for (let i = 0; i < 22; i++) {
+    const a = (i / 22) * Math.PI * 2;
+    particles.push({ kind: 'drop', x: W / 2, y: H * 0.42, vx: Math.cos(a) * 260, vy: Math.sin(a) * 260, r: rand(3, 7), life: 1.2, color: '255,225,130' });
+  }
+  $('#hudLevel').textContent = 'Lv' + level;
+  $('#hudLevel').hidden = false;
+  bumpHud($('#hudLevel'));
+}
+
 /* ────────────────────── BUBBLES ──────────────────────────────── */
 
 const JELLY_TINTS = [
@@ -512,7 +570,7 @@ function spawnBubble(yOffset = 0) {
     x: srange(r + 6, W - r - 6),
     y: H + r + 10 + yOffset,
     r,
-    vy: (0.121 * H + srange(-14, 24)) * d.speed * (gold ? 1.7 : 1),
+    vy: (0.121 * H + srange(-14, 24)) * d.speed * (gold ? 1.7 : type === 'jelly' ? jellySpeedMult() : 1),
     phase: srange(0, Math.PI * 2),
     wobAmp: srange(8, 26),
     wobSpd: srange(0.9, 1.7),
@@ -533,16 +591,16 @@ function spawnBoss() {
     x: dir === 1 ? -r - 20 : W + r + 20,
     y: srange(0.22, 0.5) * H,
     r,
-    vx: dir * (W * 0.09),
+    vx: dir * (W * 0.09) * bossSpeedMult(),
     vy: 0,
     phase: srange(0, Math.PI * 2),
-    wobAmp: 20,
-    wobSpd: 1.1,
+    wobAmp: 20 + (level - 1) * 8, // bobs more wildly at higher levels
+    wobSpd: 1.1 + (level - 1) * 0.3,
     tint: [200, 120, 235], // regal purple — unmistakably the boss
     giftKind: 'p10',
     popped: false,
   });
-  banner('BOSS JELLY!', '#e0a0ff');
+  banner(level >= 2 ? 'ANGRY BOSS JELLY!' : 'BOSS JELLY!', '#e0a0ff');
   snd.boss();
 }
 
@@ -623,11 +681,10 @@ function drawBubble(b, t) {
     ctx2d.font = `${Math.round(fs * 0.62)}px 'Press Start 2P', monospace`;
     ctx2d.fillText('2', b.x + fs * 0.45, b.y + fs * 0.32);
   } else if (b.type === 'gold') {
-    // golden bubble — fast, shiny, +50
+    // golden bubble — a shiny gold coin, fast, +50
     const g = ctx2d.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.4, b.r * 0.1, b.x, b.y, b.r);
-    g.addColorStop(0, 'rgba(255,246,205,0.95)');
-    g.addColorStop(0.55, 'rgba(255,213,90,0.8)');
-    g.addColorStop(1, 'rgba(226,158,32,0.55)');
+    g.addColorStop(0, 'rgba(255,246,205,0.55)');
+    g.addColorStop(1, 'rgba(226,158,32,0.2)');
     ctx2d.beginPath();
     ctx2d.arc(b.x, b.y, b.r, 0, Math.PI * 2);
     ctx2d.fillStyle = g;
@@ -635,20 +692,12 @@ function drawBubble(b, t) {
     ctx2d.lineWidth = 2.5;
     ctx2d.strokeStyle = 'rgba(255,235,150,0.95)';
     ctx2d.stroke();
-    ctx2d.beginPath();
-    ctx2d.ellipse(b.x - b.r * 0.35, b.y - b.r * 0.42, b.r * 0.22, b.r * 0.13, -0.6, 0, Math.PI * 2);
-    ctx2d.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx2d.fill();
-    // sparkle diamond in the middle
-    const s = b.r * 0.34;
-    ctx2d.beginPath();
-    ctx2d.moveTo(b.x, b.y - s);
-    ctx2d.lineTo(b.x + s * 0.55, b.y);
-    ctx2d.lineTo(b.x, b.y + s);
-    ctx2d.lineTo(b.x - s * 0.55, b.y);
-    ctx2d.closePath();
-    ctx2d.fillStyle = 'rgba(255,255,255,0.95)';
-    ctx2d.fill();
+    if (!drawImageBubble(IMG.coin, b.x, b.y, b.r * 1.5)) {
+      ctx2d.fillStyle = '#ffd94a';
+      ctx2d.font = `${Math.round(b.r)}px serif`;
+      ctx2d.textAlign = 'center'; ctx2d.textBaseline = 'middle';
+      ctx2d.fillText('🪙', b.x, b.y);
+    }
   } else if (b.type === 'jelly') {
     const [cr, cg, cb] = b.tint;
     // tentacles first (peek from under the bubble)
@@ -672,16 +721,35 @@ function drawBubble(b, t) {
     ctx2d.arc(b.x, b.y, b.r * 0.85, 0, Math.PI * 2);
     ctx2d.fillStyle = g;
     ctx2d.fill();
-    // faint little eyes — look closely!
-    ctx2d.fillStyle = 'rgba(60,60,90,0.35)';
+    // eyes
+    const angry = level >= 2 || b.boss; // from level 2 the jellies get mad
+    const ey = b.y + b.r * 0.05;
+    const ex = b.r * 0.2;
+    ctx2d.fillStyle = angry ? 'rgba(40,40,70,0.65)' : 'rgba(60,60,90,0.35)';
     ctx2d.beginPath();
-    ctx2d.arc(b.x - b.r * 0.2, b.y + b.r * 0.05, b.r * 0.05, 0, Math.PI * 2);
-    ctx2d.arc(b.x + b.r * 0.2, b.y + b.r * 0.05, b.r * 0.05, 0, Math.PI * 2);
+    ctx2d.arc(b.x - ex, ey, b.r * 0.055, 0, Math.PI * 2);
+    ctx2d.arc(b.x + ex, ey, b.r * 0.055, 0, Math.PI * 2);
     ctx2d.fill();
+    if (angry) {
+      // angry eyebrows — slanted toward the nose
+      ctx2d.strokeStyle = 'rgba(40,40,70,0.8)';
+      ctx2d.lineWidth = Math.max(2, b.r * 0.05);
+      ctx2d.lineCap = 'round';
+      const by = b.y - b.r * 0.12;
+      ctx2d.beginPath();
+      ctx2d.moveTo(b.x - ex - b.r * 0.14, by - b.r * 0.1);
+      ctx2d.lineTo(b.x - ex + b.r * 0.1, by + b.r * 0.04);
+      ctx2d.moveTo(b.x + ex + b.r * 0.14, by - b.r * 0.1);
+      ctx2d.lineTo(b.x + ex - b.r * 0.1, by + b.r * 0.04);
+      ctx2d.stroke();
+    }
   } else {
     drawBubbleBase(b, 0.18);
-    if (b.type === 'gift') drawSprite(GIFT_SPR, b.x, b.y, b.r * 1.15);
-    else drawSprite(HEART_SPR, b.x, b.y, b.r * 1.05);
+    if (b.type === 'gift') {
+      if (!drawImageBubble(IMG.treasure, b.x, b.y, b.r * 1.5)) drawSprite(GIFT_SPR, b.x, b.y, b.r * 1.15);
+    } else {
+      if (!drawImageBubble(IMG.heart, b.x, b.y, b.r * 1.35)) drawSprite(HEART_SPR, b.x, b.y, b.r * 1.05);
+    }
   }
   ctx2d.restore();
 }
@@ -726,6 +794,7 @@ function addPoints(n, b) {
     score = Math.max(0, score + n);
     $('#hudScore').textContent = score;
     bumpHud($('#hudScore'));
+    if (n > 0) checkLevel();
   }
 }
 
@@ -1061,19 +1130,13 @@ function update(dtReal, t) {
     $('#matchClock').textContent = Math.max(0, Math.ceil(matchTime));
     if (matchTime <= 0) { endGame(); return; }
   } else {
-    // zone progression (solo only)
-    let zi = 0;
-    for (let i = 0; i < ZONES.length; i++) if (elapsed >= ZONES[i].t) zi = i;
-    if (zi !== zoneIdx) {
-      zoneIdx = zi;
-      if (zi > 0) { banner('▼ ' + ZONES[zi].name, '#bfe8ff'); snd.zone(); }
-      screens.game.style.setProperty('--depth', Math.min(zi * 0.11, 0.44));
-    }
-    // boss jellyfish appears occasionally from ~35s in
+    // depth/darkening is driven by the level system (see onLevelUp).
+    // boss jellyfish appears occasionally — sooner & more often at higher levels
     bossTimer -= dtReal;
-    if (elapsed > 35 && bossTimer <= 0 && !bubbles.some((b) => b.boss)) {
+    const bossReady = level >= 2 ? 15 : 35;
+    if (elapsed > bossReady && bossTimer <= 0 && !bubbles.some((b) => b.boss)) {
       spawnBoss();
-      bossTimer = rand(22, 34);
+      bossTimer = rand(22 - (level - 1) * 3, 34 - (level - 1) * 4);
     }
   }
 
@@ -1274,11 +1337,13 @@ function resetState() {
   comboTimer = 0;
   bestCombo = 0;
   zoneIdx = 0;
+  level = 1;
   bossTimer = rand(30, 42);
   matchTime = MATCH_SECONDS;
   fx.frenzyT = 0; fx.slowT = 0; fx.shield = false;
   stats = { pops: 0, jellies: 0, gold: 0, dodged: 0 };
   screens.game.style.setProperty('--depth', 0);
+  $('#hudLevel').hidden = true;
   if (mode === '2p') seedForMatch();
   else if (dailyMode) seedDaily();
   else srand = Math.random;
