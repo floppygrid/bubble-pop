@@ -119,11 +119,6 @@ const snd = {
     // a letter lands in the title
     tone(440 + i * 65, 480 + i * 65, 0.09, { type: 'square', gain: 0.07 });
   },
-  blub() {
-    // blowing bubbles from the mouth
-    tone(280, 720, 0.12, { type: 'sine', gain: 0.06 });
-    tone(400, 950, 0.1, { type: 'sine', gain: 0.05, at: 0.09 });
-  },
 };
 
 /* tiny chiptune sequencer — melodies are just arrays of Hz (0 = rest) */
@@ -331,12 +326,9 @@ let pointers = [];       // smoothed fingertip cursors
 let camStream = null;
 let fishTimer = 0;
 let handLandmarker = null;
-let faceLandmarker = null;
 let visionReady = false;
 let handLoopOn = false;
-let visionTick = 0;
 let lastVideoTime = -1;
-const mouth = { open: false, x: 0, y: 0, lastEmit: 0, lastSnd: 0 };
 
 function resizeCanvas() {
   DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -614,12 +606,10 @@ canvas.addEventListener('pointerdown', (e) => {
   popAt(e.clientX, e.clientY, 14);
 });
 
-/* MediaPipe Tasks Vision — hand + face landmarkers in one runtime.
-   (The legacy Hands/FaceMesh scripts clobber each other's globals when
-   loaded together; the Tasks API is built to run both at once.) */
+/* MediaPipe Tasks Vision — hand landmarker only (mouth tracking removed:
+   a second model made lower-end machines crawl). */
 const VISION_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
 const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
-const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 async function preloadVision() {
   if (preloadVision.started) return;
@@ -629,27 +619,19 @@ async function preloadVision() {
     const fileset = await vision.FilesetResolver.forVisionTasks(`${VISION_CDN}/wasm`);
 
     const build = (delegate) =>
-      Promise.all([
-        vision.HandLandmarker.createFromOptions(fileset, {
-          baseOptions: { modelAssetPath: HAND_MODEL, delegate },
-          runningMode: 'VIDEO',
-          numHands: 2,
-          minHandDetectionConfidence: 0.5,
-          minTrackingConfidence: 0.5,
-        }),
-        vision.FaceLandmarker.createFromOptions(fileset, {
-          baseOptions: { modelAssetPath: FACE_MODEL, delegate },
-          runningMode: 'VIDEO',
-          numFaces: 1,
-          outputFaceBlendshapes: true,
-        }),
-      ]);
+      vision.HandLandmarker.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: HAND_MODEL, delegate },
+        runningMode: 'VIDEO',
+        numHands: 2,
+        minHandDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      });
 
     try {
-      [handLandmarker, faceLandmarker] = await build('GPU');
+      handLandmarker = await build('GPU');
     } catch (e) {
       console.warn('GPU delegate unavailable, falling back to CPU', e);
-      [handLandmarker, faceLandmarker] = await build('CPU');
+      handLandmarker = await build('CPU');
     }
     visionReady = true;
   } catch (e) {
@@ -678,37 +660,12 @@ function onHands(res) {
   });
 }
 
-function onFace(res) {
-  const lm = res.faceLandmarks && res.faceLandmarks[0];
-  if (!lm) {
-    mouth.open = false;
-    return;
-  }
-  const bs = res.faceBlendshapes && res.faceBlendshapes[0];
-  const jaw = bs && bs.categories.find((c) => c.categoryName === 'jawOpen');
-  if (jaw) {
-    mouth.open = jaw.score > 0.35;
-  } else {
-    // fallback: lip gap (13/14) relative to face height (forehead 10 → chin 152)
-    const gap = Math.hypot(lm[13].x - lm[14].x, lm[13].y - lm[14].y);
-    const face = Math.hypot(lm[10].x - lm[152].x, lm[10].y - lm[152].y);
-    mouth.open = face > 0 && gap / face > 0.08;
-  }
-  const p = videoToScreen((lm[13].x + lm[14].x) / 2, (lm[13].y + lm[14].y) / 2);
-  mouth.x = p.x;
-  mouth.y = p.y;
-}
-
 function handLoop() {
   if (!handLoopOn) return;
   if (visionReady && camStream && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
     lastVideoTime = video.currentTime;
-    const ts = performance.now();
     try {
-      onHands(handLandmarker.detectForVideo(video, ts));
-      visionTick++;
-      // the mouth doesn't need every frame — every 2nd keeps it light
-      if (visionTick % 2 === 0) onFace(faceLandmarker.detectForVideo(video, ts));
+      onHands(handLandmarker.detectForVideo(video, performance.now()));
     } catch (e) { /* skip frame */ }
   }
   requestAnimationFrame(handLoop);
@@ -757,22 +714,32 @@ function stopCamera() {
   video.classList.remove('live');
   video.srcObject = null;
   pointers = [];
-  mouth.open = false;
 }
 
 /* ─────────────────────── FISH & DUST ─────────────────────────── */
 
-const FISH = ['🐠', '🐟', '🐡', '🦑', '🐢', '🦐'];
+const FISH_SRC = [
+  'assets/fish/fish1.png',
+  'assets/fish/fish2.png',
+  'assets/fish/fish3.png',
+  'assets/fish/fish4.png',
+  'assets/fish/fish5.png', // seahorse (portrait)
+];
+// warm the browser cache so the first fish doesn't pop in blank
+FISH_SRC.forEach((src) => { const im = new Image(); im.src = src; });
 
 function spawnFish() {
-  const f = document.createElement('div');
+  const idx = (Math.random() * FISH_SRC.length) | 0;
+  const f = document.createElement('img');
   f.className = 'fish';
-  f.textContent = FISH[(Math.random() * FISH.length) | 0];
+  f.src = FISH_SRC[idx];
+  f.alt = '';
   const dir = Math.random() < 0.5 ? 1 : -1;
-  f.style.fontSize = rand(26, 57) + 'px';
+  const w = rand(55, 110) * (idx === 4 ? 0.55 : 1); // seahorse is tall & skinny
+  f.style.width = Math.round(w) + 'px';
   f.style.top = rand(12, 70) + 'vh';
-  // emoji sea creatures face LEFT by default — flip them when swimming right
-  f.style.setProperty('--fdir', dir === 1 ? -1 : 1);
+  // the photos face RIGHT — flip when swimming left
+  f.style.setProperty('--fdir', dir);
   f.style.setProperty('--fx0', (dir === 1 ? -15 : 115) + 'vw');
   f.style.setProperty('--fx1', (dir === 1 ? 115 : -15) + 'vw');
   f.style.setProperty('--fy1', rand(-8, 8) + 'vh');
@@ -816,40 +783,12 @@ function update(dt, t) {
   // fingertip popping — works with both hands at once
   for (const p of pointers) popAt(p.x, p.y, 12);
 
-  // open mouth → blow a cluster of tiny bubbles
-  if (mouth.open && camStream) {
-    const now = performance.now();
-    if (now - mouth.lastEmit > 70) {
-      mouth.lastEmit = now;
-      for (let i = 0; i < 3; i++) {
-        particles.push({
-          kind: 'tiny',
-          x: mouth.x + rand(-12, 12),
-          y: mouth.y + rand(-6, 6),
-          vx: rand(-20, 20),
-          vy: rand(-150, -70),
-          r: rand(2, 6.5),
-          life: rand(0.9, 1.7),
-          phase: rand(0, Math.PI * 2),
-        });
-      }
-      if (now - mouth.lastSnd > 550) {
-        mouth.lastSnd = now;
-        snd.blub();
-      }
-    }
-  }
-
   for (const pt of particles) {
     if (pt.kind === 'drop') {
       pt.x += pt.vx * dt;
       pt.y += pt.vy * dt;
       pt.vy -= 140 * dt; // buoyancy — droplets float up
       pt.life -= dt * 1.8;
-    } else if (pt.kind === 'tiny') {
-      pt.x += (pt.vx + Math.sin(pt.phase + pt.life * 7) * 16) * dt;
-      pt.y += pt.vy * dt;
-      pt.life -= dt * 0.9;
     } else {
       pt.r = lerp(pt.r, pt.max, dt * 10);
       pt.life -= dt * 2.6;
@@ -888,17 +827,6 @@ function draw(t) {
       ctx2d.strokeStyle = `rgba(${pt.color},${pt.life * 0.8})`;
       ctx2d.lineWidth = 3;
       ctx2d.stroke();
-    } else if (pt.kind === 'tiny') {
-      const a = clamp(pt.life, 0, 1);
-      ctx2d.beginPath();
-      ctx2d.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
-      ctx2d.strokeStyle = `rgba(255,255,255,${a * 0.8})`;
-      ctx2d.lineWidth = 1.4;
-      ctx2d.stroke();
-      ctx2d.beginPath();
-      ctx2d.arc(pt.x - pt.r * 0.3, pt.y - pt.r * 0.35, pt.r * 0.25, 0, Math.PI * 2);
-      ctx2d.fillStyle = `rgba(255,255,255,${a * 0.7})`;
-      ctx2d.fill();
     } else {
       ctx2d.beginPath();
       ctx2d.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
