@@ -225,6 +225,7 @@ const ICON = {
   sndOff: pixSvg([[1, 3, 1, 2], [2, 2, 1, 4], [3, 1, 1, 6], [5, 2], [7, 2], [6, 3], [5, 4], [7, 4]]),
   pause: pixSvg([[2, 1, 2, 6], [5, 1, 2, 6]]),
   play: pixSvg([[2, 1, 1, 6], [3, 2, 1, 4], [4, 3, 1, 2]]),
+  bulb: pixSvg([[3, 0, 2, 1], [2, 1, 4, 1], [1, 2, 6, 2], [2, 4, 4, 1], [3, 5, 2, 1], [2, 6, 4, 1], [3, 7, 2, 1]]),
 };
 
 function heartSVG(filled) {
@@ -1511,6 +1512,23 @@ $('#btnPause').addEventListener('click', () => {
   }
 });
 
+/* help popup — pauses the game while open */
+let helpWasRunning = false;
+$('#btnHelp').addEventListener('click', () => {
+  snd.click();
+  helpWasRunning = running === true;
+  if (helpWasRunning) { userPaused = true; pauseGame(); }
+  $('#helpPopup').hidden = false;
+});
+function closeHelp() {
+  snd.click();
+  $('#helpPopup').hidden = true;
+  if (helpWasRunning) { userPaused = false; resumeGame(); }
+  helpWasRunning = false;
+}
+$('#btnHelpClose').addEventListener('click', closeHelp);
+$('#btnHelpResume').addEventListener('click', closeHelp);
+
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     pauseGame(); // no-op unless mid-run
@@ -1525,6 +1543,7 @@ resizeCanvas();
 $('#hudBest').textContent = getBest();
 updateSoundIcons();
 updatePauseIcon();
+$('#btnHelp').innerHTML = ICON.bulb;
 
 // fade the aquarium photo in once it's fully downloaded
 const aquariumImg = new Image();

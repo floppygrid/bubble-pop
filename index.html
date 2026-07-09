@@ -124,13 +124,23 @@
     <div class="light-rays"></div>
     <div id="fishLayer" class="fish-layer"></div>
     <div class="reef" aria-hidden="true">
-      <img class="reef-coral" src="assets/corals/coral4.png" alt="" style="left:-4%;width:26%" />
-      <img class="reef-coral" src="assets/corals/coral1.png" alt="" style="left:9%;width:22%" />
-      <img class="reef-coral" src="assets/corals/coral3.png" alt="" style="left:24%;width:24%" />
-      <img class="reef-coral" src="assets/corals/coral5.png" alt="" style="left:40%;width:23%" />
-      <img class="reef-coral" src="assets/corals/coral2.png" alt="" style="left:57%;width:22%" />
-      <img class="reef-coral" src="assets/corals/coral4.png" alt="" style="left:72%;width:24%" />
-      <img class="reef-coral" src="assets/corals/coral1.png" alt="" style="left:86%;width:22%" />
+      <!-- back row: bigger, dimmer, sits deeper -->
+      <img class="reef-coral back" src="assets/corals/coral8.png" alt="" style="left:2%;width:26%" />
+      <img class="reef-coral back" src="assets/corals/coral3.png" alt="" style="left:20%;width:27%" />
+      <img class="reef-coral back" src="assets/corals/coral10.png" alt="" style="left:40%;width:28%" />
+      <img class="reef-coral back" src="assets/corals/coral6.png" alt="" style="left:60%;width:25%" />
+      <img class="reef-coral back" src="assets/corals/coral8.png" alt="" style="left:80%;width:27%" />
+      <img class="reef-coral back" src="assets/corals/coral3.png" alt="" style="left:97%;width:24%" />
+      <!-- front row: overlapping, brighter, taller -->
+      <img class="reef-coral" src="assets/corals/coral4.png" alt="" style="left:-3%;width:23%" />
+      <img class="reef-coral" src="assets/corals/coral9.png" alt="" style="left:11%;width:20%" />
+      <img class="reef-coral" src="assets/corals/coral1.png" alt="" style="left:25%;width:22%" />
+      <img class="reef-coral" src="assets/corals/coral7.png" alt="" style="left:39%;width:21%" />
+      <img class="reef-coral" src="assets/corals/coral5.png" alt="" style="left:52%;width:22%" />
+      <img class="reef-coral" src="assets/corals/coral2.png" alt="" style="left:65%;width:20%" />
+      <img class="reef-coral" src="assets/corals/coral9.png" alt="" style="left:78%;width:21%" />
+      <img class="reef-coral" src="assets/corals/coral4.png" alt="" style="left:91%;width:23%" />
+      <img class="reef-coral" src="assets/corals/coral7.png" alt="" style="left:103%;width:20%" />
     </div>
     <canvas id="gameCanvas"></canvas>
     <div class="depth-veil" aria-hidden="true"></div>
@@ -152,6 +162,7 @@
           <span id="hudBest" class="hud-value">0</span>
         </div>
         <div class="hud-controls">
+          <button id="btnHelp" class="btn-pix" type="button" aria-label="how to play"></button>
           <button id="btnMute" class="btn-pix" type="button" aria-label="sound on/off"></button>
           <button id="btnPause" class="btn-pix" type="button" aria-label="pause/resume"></button>
         </div>
@@ -207,6 +218,23 @@
       </div>
     </div>
   </section>
+
+  <!-- ══════════════ HELP POPUP (in-game how-to-play) ══════════════ -->
+  <div id="helpPopup" class="help-popup" hidden>
+    <div class="help-card">
+      <button id="btnHelpClose" class="help-close" type="button" aria-label="close">✕</button>
+      <h2 class="help-title">HOW TO PLAY</h2>
+      <ul class="help-list">
+        <li><span class="hb hb-o2">O₂</span><span class="ht">Pop white bubbles to survive <span class="tag tag-good">+5</span> — chain them for a <b>COMBO</b> <span class="tag tag-good">x2</span> <span class="tag tag-good">x4</span></span></li>
+        <li><span class="hb hb-jelly">🪼</span><span class="ht">Jellyfish hide as pretty bubbles — pop <b>3</b> and you're out <span class="tag tag-bad">☠</span></span></li>
+        <li><span class="hb hb-gold">✦</span><span class="ht">Golden bubble = fast &amp; rare <span class="tag tag-good">+50</span></span></li>
+        <li><span class="hb hb-gift">🎁</span><span class="ht">Gifts drop points, a <span class="tag tag-life">♥</span>, or a power-up: <b>FRENZY</b>, <b>SLOW-MO</b>, <b>SHIELD</b></span></li>
+        <li><span class="hb hb-boss">◆</span><span class="ht">Dodge the <b>BOSS JELLY</b> for <span class="tag tag-good">+30</span> — dive deeper, it speeds up!</span></li>
+      </ul>
+      <p class="help-foot">🔒 Your camera never leaves your device.</p>
+      <button id="btnHelpResume" class="btn-candy" type="button">Got it!</button>
+    </div>
+  </div>
 
   <!-- ══════════════ BUBBLE WASH TRANSITION ══════════════ -->
   <div id="bubbleWash" class="bubble-wash" aria-hidden="true"></div>
