@@ -44,11 +44,24 @@ button { font: inherit; cursor: pointer; }
 }
 .screen.is-active { display: block; }
 
+/* gradient paints instantly; the photo fades in only when fully loaded,
+   so it never renders half-drawn top-to-bottom */
 .aquarium-bg {
   position: absolute;
   inset: 0;
-  background: url('assets/aquarium.jpg') center / cover no-repeat;
+  background:
+    radial-gradient(120% 90% at 50% -10%, #d4f0fc 0%, transparent 55%),
+    linear-gradient(180deg, #9cd6f2 0%, #5aabd4 45%, #3d8bb0 80%, #2e7f9e 100%);
 }
+.aquarium-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: url('assets/aquarium.jpg') center / cover no-repeat;
+  opacity: 0;
+  transition: opacity 0.7s ease;
+}
+.aquarium-bg.bg-loaded::after { opacity: 1; }
 .aquarium-bg.dimmed { filter: brightness(0.75) saturate(0.9); }
 
 .hidden-soft {
@@ -388,12 +401,12 @@ button { font: inherit; cursor: pointer; }
   background:
     /* corner vignette — draws the eye to the player in the middle */
     radial-gradient(130% 130% at 50% 42%, transparent 44%, rgba(1, 12, 42, 0.72) 100%),
-    /* sunlit surface above, deep ocean blue below — strong & blue */
+    /* sunlit surface above, deep ocean blue below — light airy top */
     linear-gradient(
       180deg,
-      rgba(140, 210, 255, 0.32) 0%,
-      rgba(45, 135, 220, 0.48) 35%,
-      rgba(12, 80, 175, 0.64) 68%,
+      rgba(214, 244, 255, 0.12) 0%,
+      rgba(82, 176, 240, 0.38) 35%,
+      rgba(12, 80, 175, 0.62) 68%,
       rgba(2, 26, 92, 0.86) 100%
     );
   mix-blend-mode: multiply;

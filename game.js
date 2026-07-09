@@ -351,7 +351,7 @@ function difficulty() {
     life: 0.01,
     o2: 1 - jelly - 0.10,
     speed: lerp(1, 2.15, clamp(elapsed / 90, 0, 1)) + Math.max(0, elapsed - 90) * 0.003,
-    spawnMs: lerp(800, 420, clamp(elapsed / 90, 0, 1)),
+    spawnMs: lerp(720, 420, clamp(elapsed / 90, 0, 1)),
   };
 }
 
@@ -770,7 +770,8 @@ function update(dt, t) {
   fishTimer -= dt;
   if (fishTimer <= 0) {
     spawnFish();
-    fishTimer = rand(2.2, 5);
+    if (Math.random() < 0.35) spawnFish(); // sometimes a pair swims by
+    fishTimer = rand(1.1, 2.6);
   }
 
   for (const b of bubbles) {
@@ -909,7 +910,7 @@ function resetState() {
   lives = 3;
   elapsed = 0;
   spawnTimer = 400;
-  fishTimer = 0.5;
+  fishTimer = 0.15;
   bubbles = [];
   particles = [];
   texts = [];
@@ -1070,6 +1071,13 @@ resizeCanvas();
 $('#hudBest').textContent = getBest();
 updateSoundIcons();
 updatePauseIcon();
+
+// fade the aquarium photo in once it's fully downloaded
+const aquariumImg = new Image();
+aquariumImg.onload = () => {
+  document.querySelectorAll('.aquarium-bg').forEach((el) => el.classList.add('bg-loaded'));
+};
+aquariumImg.src = 'assets/aquarium.jpg';
 
 // browsers unlock audio on the first user gesture — catch it wherever it lands
 document.addEventListener('pointerdown', () => audio(), { once: true });
