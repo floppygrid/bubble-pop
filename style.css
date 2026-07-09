@@ -350,6 +350,7 @@ button { font: inherit; cursor: pointer; }
   font-size: clamp(12.5px, 1.7vw, 15px);
   color: #6b5335;
 }
+.manual-note.privacy { background: #e6f4ff; border-color: #4a90c2; color: #2b4a5e; }
 .note-icon {
   flex: none;
   width: 22px;
@@ -362,12 +363,89 @@ button { font: inherit; cursor: pointer; }
   font-family: 'Alfa Slab One', serif;
   font-size: 14px;
 }
+.manual-note.privacy .note-icon { background: #4a90c2; }
 
-.btn-play { margin-top: 16px; width: 100%; }
+.btn-play { margin-top: 4px; width: 100%; }
+
+/* mode picker */
+.mode-pick { margin-top: 16px; }
+.mode-row { display: flex; gap: 10px; margin-top: 10px; }
+.btn-mode {
+  flex: 1;
+  font-size: clamp(9px, 1.5vw, 12px) !important;
+  padding: 12px 10px !important;
+  background: #cfe8f0 !important;
+  color: #1e5266 !important;
+  text-shadow: 0 2px 3px rgba(120, 170, 190, 0.6) !important;
+}
+
+/* mini panels — high scores & badges */
+.mini-panel {
+  margin-top: 12px;
+  border: 3px solid #2a2a2a;
+  border-radius: 10px;
+  background: #fff8ea;
+  padding: 10px 12px;
+}
+.mini-h {
+  font-family: 'Press Start 2P', monospace;
+  font-size: clamp(8px, 1.3vw, 10px);
+  color: var(--nintendo-red);
+  margin-bottom: 8px;
+  letter-spacing: 1px;
+}
+.top5 { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.top5 li { display: flex; align-items: center; gap: 8px; font-size: clamp(11px, 1.5vw, 13px); color: #3b3327; }
+.top5 .t5-rank {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  color: #fff;
+  background: var(--nintendo-red);
+  width: 18px; height: 18px;
+  display: grid; place-items: center;
+  border-radius: 4px;
+  flex: none;
+}
+.top5 b { font-family: 'Press Start 2P', monospace; font-size: clamp(11px, 1.6vw, 14px); color: var(--ink); }
+.top5 .t5-date { margin-left: auto; font-size: 11px; color: #9a8666; }
+.top5 .t5-empty { color: #9a8666; font-style: italic; }
+.badge-shelf { display: flex; flex-wrap: wrap; gap: 6px; }
+.shelf-badge {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7.5px;
+  padding: 5px 7px;
+  border-radius: 5px;
+  background: #e7ded0;
+  color: #b0a48e;
+  line-height: 1.4;
+}
+.shelf-badge.got { background: #ffe08a; color: #6b5335; }
 
 @media (max-width: 640px) {
   .manual-body { grid-template-columns: 1fr; gap: 14px; padding: 14px; }
   .art-scene { aspect-ratio: 16 / 9.5; }
+  .mode-row { flex-direction: column; }
+}
+
+/* ─────────────────── coral reef (bottom of game) ──────────────── */
+.reef {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 30vh;
+  pointer-events: none;
+  z-index: 2;
+}
+.reef-coral {
+  position: absolute;
+  bottom: -7%;
+  height: auto;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 6px 10px rgba(0, 20, 40, 0.4)) brightness(0.94) saturate(1.05);
+}
+/* darker, bluer reef as you descend into deeper zones */
+#screen-game .reef-coral { transition: filter 1.2s ease; }
+#screen-game[style*="--depth"] .reef-coral {
+  filter: drop-shadow(0 6px 10px rgba(0, 20, 40, 0.5)) brightness(calc(0.94 - var(--depth, 0))) saturate(calc(1.05 - var(--depth, 0) * 0.6)) hue-rotate(calc(var(--depth, 0) * 18deg));
 }
 
 /* ─────────────────────── game screen ─────────────────────────── */
@@ -453,29 +531,15 @@ button { font: inherit; cursor: pointer; }
 #screen-game.is-paused .fish { animation-play-state: paused; }
 
 /* coral silhouettes */
-.coral {
-  position: absolute;
-  bottom: -2vh;
-  width: 42vw;
-  max-width: 420px;
-  height: 26vh;
-  pointer-events: none;
-  background-repeat: no-repeat;
-  background-size: contain;
-  background-position: bottom;
-  opacity: 0.85;
-}
-.coral-left {
-  left: -6vw;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 260'%3E%3Cg fill='%23e8a7bb' opacity='0.9'%3E%3Cpath d='M40 260c-8-70 18-96 10-150 22 34 20 74 16 150z'/%3E%3Cpath d='M78 260c-4-52 26-64 22-118 16 40 6 66 4 118z'/%3E%3Ccircle cx='140' cy='215' r='38'/%3E%3Ccircle cx='108' cy='238' r='26'/%3E%3C/g%3E%3Cg fill='%23c39ad6' opacity='0.85'%3E%3Cpath d='M190 260c-10-60 24-80 14-132 26 40 18 78 16 132z'/%3E%3Cpath d='M235 260c0-40 20-52 16-92 14 30 8 56 8 92z'/%3E%3C/g%3E%3Cg fill='%23f4c9d4' opacity='0.9'%3E%3Ccircle cx='300' cy='230' r='32'/%3E%3Ccircle cx='340' cy='248' r='24'/%3E%3Cpath d='M368 260c-4-36 16-46 12-80 12 26 8 48 8 80z'/%3E%3C/g%3E%3C/svg%3E");
-}
-.coral-right {
-  right: -6vw;
-  transform: scaleX(-1);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 260'%3E%3Cg fill='%23f0b7c6' opacity='0.9'%3E%3Cpath d='M50 260c-12-76 22-100 12-160 26 40 22 82 18 160z'/%3E%3Ccircle cx='120' cy='222' r='40'/%3E%3C/g%3E%3Cg fill='%23b391cc' opacity='0.85'%3E%3Cpath d='M180 260c-6-56 22-70 18-124 18 42 8 70 6 124z'/%3E%3Ccircle cx='240' cy='236' r='30'/%3E%3C/g%3E%3Cg fill='%23f7d3dc' opacity='0.9'%3E%3Cpath d='M300 260c-8-48 18-62 12-104 16 32 12 62 10 104z'/%3E%3Ccircle cx='352' cy='244' r='26'/%3E%3C/g%3E%3C/svg%3E");
-}
+#gameCanvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; }
 
-#gameCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* darken the whole scene as you descend */
+#screen-game .depth-veil {
+  position: absolute; inset: 0; pointer-events: none; z-index: 4;
+  background: rgba(2, 20, 55, 0.55);
+  opacity: var(--depth, 0);
+  transition: opacity 1.2s ease;
+}
 
 /* HUD */
 .hud {
@@ -565,6 +629,68 @@ button { font: inherit; cursor: pointer; }
   box-shadow: 0 4px 0 #2a2a2a, 0 10px 24px rgba(0, 0, 0, 0.3);
 }
 .btn-pix-paper:active { box-shadow: 0 1px 0 #2a2a2a; }
+
+/* match clock chip glows when versus is on */
+.hud-clock .hud-value { color: #ffe08a; }
+
+/* big event banner — combos, power-ups, zones, boss */
+.game-banner {
+  position: absolute;
+  top: 22%;
+  left: 0; right: 0;
+  text-align: center;
+  z-index: 6;
+  pointer-events: none;
+  font-family: 'Press Start 2P', monospace;
+  font-size: clamp(18px, 5vw, 40px);
+  color: #fff;
+  text-shadow: 0 4px 0 rgba(0, 0, 0, 0.35), 0 0 18px rgba(255, 255, 255, 0.4);
+  animation: banner-pop 1.5s ease both;
+}
+@keyframes banner-pop {
+  0% { transform: scale(0.4) translateY(10px); opacity: 0; }
+  15% { transform: scale(1.12); opacity: 1; }
+  28% { transform: scale(1); }
+  78% { opacity: 1; }
+  100% { transform: scale(1.05) translateY(-14px); opacity: 0; }
+}
+
+/* toast — share confirmations */
+.toast {
+  position: absolute;
+  bottom: 12%;
+  left: 50%;
+  transform: translate(-50%, 20px);
+  z-index: 11;
+  background: rgba(8, 34, 56, 0.92);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 12px;
+  padding: 12px 18px;
+  color: #fff;
+  font-size: clamp(12px, 2vw, 15px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* game-over badges */
+.go-badges { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 12px; }
+.go-badges .badge {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #ffe08a;
+  color: #6b5335;
+  line-height: 1.4;
+}
+.go-badges .badge.fresh {
+  background: var(--nintendo-red);
+  color: #fff;
+  animation: badge-pop 0.5s ease both;
+}
+@keyframes badge-pop { 0% { transform: scale(0); } 70% { transform: scale(1.25); } 100% { transform: scale(1); } }
 
 /* countdown */
 .countdown {

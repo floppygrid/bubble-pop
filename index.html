@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#7fc4d8" />
   <meta name="description" content="Bubble PoP — pop the oxygen bubbles to survive! A camera-powered underwater arcade game." />
+
+  <!-- Security: lock down what the page may load/connect to. Everything is
+       self-hosted except Google Fonts; no external scripts or network calls. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'none'" />
+  <meta name="referrer" content="no-referrer" />
   <title>Bubble PoP</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -50,7 +55,7 @@
         </header>
 
         <div class="manual-body">
-          <!-- left : illustrated panel -->
+          <!-- left : illustrated panel + meta -->
           <div class="manual-art">
             <div class="art-scene">
               <div class="art-rays"></div>
@@ -69,25 +74,42 @@
               <span class="best-label">YOUR BEST SCORE</span>
               <span id="bestScoreManual" class="best-value">0</span>
             </div>
+
+            <div class="mini-panel">
+              <h3 class="mini-h">HIGH SCORES</h3>
+              <ol id="top5List" class="top5"></ol>
+            </div>
+
+            <div class="mini-panel">
+              <h3 class="mini-h">BADGES</h3>
+              <div id="badgeShelf" class="badge-shelf"></div>
+            </div>
           </div>
 
           <!-- right : how to play -->
           <div class="manual-text">
             <h2 class="manual-h2">HOW TO PLAY</h2>
             <ol class="manual-steps">
-              <li><b>Allow your camera.</b> You become the diver — wave your hands to touch things on screen!</li>
-              <li><b>Pop white O₂ bubbles</b> with your fingertips — use both hands! (Or just tap them.) Each one keeps you breathing. <span class="tag tag-good">+5</span></li>
-              <li><b>Beware of jellyfish!</b> They disguise themselves as pretty pink &amp; blue bubbles. Pop <b>3</b> and it's game over. <span class="tag tag-bad">☠</span></li>
-              <li><b>Gift bubbles</b> hide treasure — bonus points <span class="tag tag-good">+10</span> <span class="tag tag-good">+25</span> and rarely an <b>extra life</b> <span class="tag tag-life">♥</span></li>
-              <li>The deeper you go, the <b>faster</b> it gets… and the jellyfish multiply!</li>
+              <li><b>Allow your camera</b> — you become the diver! Wave your hands (both work!) to pop bubbles. No camera? Just <b>tap</b>.</li>
+              <li><b>Pop white O₂ bubbles</b> to survive. <span class="tag tag-good">+5</span> Chain them fast for a <b>COMBO</b> — <span class="tag tag-good">x2</span> <span class="tag tag-good">x3</span> <span class="tag tag-good">x4</span> multiplier!</li>
+              <li><b>Jellyfish</b> hide as pretty bubbles — pop <b>3</b> and you're out. <span class="tag tag-bad">☠</span></li>
+              <li><b>Golden bubble</b> ✨ is rare &amp; fast — grab it for <span class="tag tag-good">+50</span></li>
+              <li><b>Gift bubbles</b> 🎁 drop points, an extra <span class="tag tag-life">♥</span>, or a power-up: <b>FRENZY</b> (all O₂), <b>SLOW-MO</b>, or a <b>SHIELD</b> that eats one jellyfish hit.</li>
+              <li><b>Dive deeper</b> through ocean zones — it speeds up, and a giant <b>BOSS JELLY</b> crosses by. Dodge it for <span class="tag tag-good">+30</span>!</li>
             </ol>
 
-            <div class="manual-note">
-              <span class="note-icon">!</span>
-              <p>No camera? No problem — you can also play by <b>tapping</b> the bubbles.</p>
+            <div class="mode-pick">
+              <button id="btnPlay" class="btn-candy btn-play" type="button">Start Popping</button>
+              <div class="mode-row">
+                <button id="btnDaily" class="btn-candy btn-mode" type="button">Daily Challenge</button>
+                <button id="btnVersus" class="btn-candy btn-mode" type="button">2‑Player Versus</button>
+              </div>
             </div>
 
-            <button id="btnPlay" class="btn-candy btn-play" type="button">Start Popping</button>
+            <div class="manual-note privacy">
+              <span class="note-icon">🔒</span>
+              <p>Your camera stays <b>on your device</b>. Nothing is recorded, saved, or uploaded — the game runs entirely in your browser.</p>
+            </div>
           </div>
         </div>
       </div>
@@ -101,20 +123,32 @@
     <div class="ocean-tint"></div>
     <div class="light-rays"></div>
     <div id="fishLayer" class="fish-layer"></div>
-    <div class="coral coral-left"></div>
-    <div class="coral coral-right"></div>
+    <div class="reef" aria-hidden="true">
+      <img class="reef-coral" src="assets/corals/coral4.png" alt="" style="left:-4%;width:26%" />
+      <img class="reef-coral" src="assets/corals/coral1.png" alt="" style="left:9%;width:22%" />
+      <img class="reef-coral" src="assets/corals/coral3.png" alt="" style="left:24%;width:24%" />
+      <img class="reef-coral" src="assets/corals/coral5.png" alt="" style="left:40%;width:23%" />
+      <img class="reef-coral" src="assets/corals/coral2.png" alt="" style="left:57%;width:22%" />
+      <img class="reef-coral" src="assets/corals/coral4.png" alt="" style="left:72%;width:24%" />
+      <img class="reef-coral" src="assets/corals/coral1.png" alt="" style="left:86%;width:22%" />
+    </div>
     <canvas id="gameCanvas"></canvas>
+    <div class="depth-veil" aria-hidden="true"></div>
 
     <!-- HUD -->
     <div class="hud">
       <div class="hud-chip hud-score">
-        <span class="hud-label">SCORE</span>
+        <span id="hudScoreLabel" class="hud-label">SCORE</span>
         <span id="hudScore" class="hud-value">0</span>
       </div>
       <div class="hud-chip hud-lives" id="hudLives" aria-label="lives"></div>
+      <div class="hud-chip hud-clock" id="matchClockChip" hidden>
+        <span class="hud-label">TIME</span>
+        <span id="matchClock" class="hud-value">90</span>
+      </div>
       <div class="hud-right">
         <div class="hud-chip hud-best">
-          <span class="hud-label">BEST</span>
+          <span id="hudBestLabel" class="hud-label">BEST</span>
           <span id="hudBest" class="hud-value">0</span>
         </div>
         <div class="hud-controls">
@@ -123,6 +157,11 @@
         </div>
       </div>
     </div>
+
+    <!-- big event banner (combos, power-ups, zones, boss) -->
+    <div id="banner" class="game-banner" hidden></div>
+    <!-- toast (share confirmations) -->
+    <div id="toast" class="toast"></div>
 
     <!-- countdown -->
     <div id="countdown" class="countdown" hidden></div>
@@ -152,15 +191,17 @@
         <div class="go-skull">
           <svg viewBox="0 0 8 8" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><g fill="#2a2a2a"><rect x="2" y="0" width="4" height="1"/><rect x="1" y="1" width="6" height="1"/><rect x="1" y="2" width="1" height="2"/><rect x="3" y="2" width="2" height="2"/><rect x="6" y="2" width="1" height="2"/><rect x="1" y="4" width="6" height="1"/><rect x="2" y="5" width="4" height="1"/><rect x="2" y="6" width="1" height="1"/><rect x="4" y="6" width="1" height="1"/></g></svg>
         </div>
-        <h2 class="go-title">GAME OVER</h2>
-        <p class="go-sub">The jellyfish got you…</p>
+        <h2 id="goTitle" class="go-title">GAME OVER</h2>
+        <p id="goSub" class="go-sub">The jellyfish got you…</p>
         <div class="go-scores">
           <div class="go-box"><span>SCORE</span><b id="goScore">0</b></div>
           <div class="go-box"><span>BEST</span><b id="goBest">0</b></div>
         </div>
         <div id="goRecord" class="go-record" hidden>★ NEW RECORD ★</div>
+        <div id="goBadges" class="go-badges"></div>
         <div class="go-actions">
           <button id="btnRetry" class="btn-candy" type="button">Play Again</button>
+          <button id="btnShare" class="btn-candy btn-ghost" type="button">Challenge a Friend</button>
           <button id="btnHome" class="btn-candy btn-ghost" type="button">Home</button>
         </div>
       </div>

@@ -72,8 +72,9 @@ function splash(dur = 0.5, { gain = 0.12, f = 900, at = 0 } = {}) {
 }
 
 const snd = {
-  pop() {
-    const p = rand(0.85, 1.25);
+  pop(streak = 0) {
+    // pitch climbs with the combo streak — pops feel hotter and hotter
+    const p = rand(0.85, 1.25) * (1 + Math.min(streak, 20) * 0.018);
     tone(320 * p, 780 * p, 0.09, { gain: 0.22 });
     splash(0.08, { gain: 0.1, f: 1600 });
   },
@@ -119,7 +120,60 @@ const snd = {
     // a letter lands in the title
     tone(440 + i * 65, 480 + i * 65, 0.09, { type: 'square', gain: 0.07 });
   },
+  gold() {
+    [784, 1047, 1319, 1568].forEach((f, i) => tone(f, f, 0.12, { type: 'triangle', gain: 0.14, at: i * 0.06 }));
+    splash(0.15, { gain: 0.08, f: 2400 });
+  },
+  frenzy() {
+    [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => tone(f, f, 0.09, { type: 'square', gain: 0.11, at: i * 0.06 }));
+  },
+  slow() {
+    tone(880, 220, 0.7, { type: 'sine', gain: 0.12 });
+    tone(660, 165, 0.7, { type: 'sine', gain: 0.08, at: 0.1 });
+  },
+  shield() {
+    tone(523, 523, 0.1, { type: 'square', gain: 0.1 });
+    tone(1047, 1047, 0.3, { type: 'triangle', gain: 0.14, at: 0.1 });
+  },
+  shieldBreak() {
+    tone(700, 200, 0.25, { type: 'square', gain: 0.13 });
+    splash(0.3, { gain: 0.12, f: 900 });
+  },
+  zone() {
+    tone(196, 196, 0.4, { type: 'triangle', gain: 0.14 });
+    tone(294, 294, 0.4, { type: 'triangle', gain: 0.1, at: 0.15 });
+  },
+  boss() {
+    tone(110, 98, 0.4, { type: 'sawtooth', gain: 0.12 });
+    tone(110, 98, 0.4, { type: 'sawtooth', gain: 0.12, at: 0.5 });
+  },
+  dodge() {
+    [659, 784, 988].forEach((f, i) => tone(f, f, 0.12, { type: 'triangle', gain: 0.12, at: i * 0.07 }));
+  },
 };
+
+/* ─────────────── DAILY CHALLENGE SEED ────────────────────────── */
+/* Everyone gets the same bubble sequence on the same day — fair
+   score battles. Only spawn randomness is seeded; visuals aren't. */
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+let srand = Math.random;
+function seedDaily() {
+  const d = new Date();
+  const s = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  let h = 0;
+  for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0;
+  srand = mulberry32(h);
+}
+const srange = (a, b) => a + srand() * (b - a);
 
 /* tiny chiptune sequencer — melodies are just arrays of Hz (0 = rest) */
 const music = {
@@ -297,9 +351,30 @@ function openInstructions() {
   } else {
     box.hidden = true;
   }
-  preloadVision(); // warm the hand + face models while the player reads
+  renderTop5();
+  renderBadgeShelf();
+  preloadVision(); // warm the hand model while the player reads
   showScreen('instructions');
   music.start('manual');
+}
+
+function renderTop5() {
+  const wrap = $('#top5List');
+  if (!wrap) return;
+  const top = getTop5();
+  if (!top.length) { wrap.innerHTML = '<li class="t5-empty">No runs yet — be the first!</li>'; return; }
+  wrap.innerHTML = top
+    .map((r, i) => `<li><span class="t5-rank">${i + 1}</span><b>${r.score}</b><span class="t5-date">${r.date}</span></li>`)
+    .join('');
+}
+
+function renderBadgeShelf() {
+  const wrap = $('#badgeShelf');
+  if (!wrap) return;
+  const owned = getBadges();
+  wrap.innerHTML = ACHIEVEMENTS
+    .map((a) => `<span class="shelf-badge${owned.includes(a.id) ? ' got' : ''}" title="${a.name}">${owned.includes(a.id) ? '★' : '☆'} ${a.name}</span>`)
+    .join('');
 }
 
 /* ─────────────────────── GAME STATE ──────────────────────────── */
@@ -318,6 +393,43 @@ let spawnTimer = 0;
 let score = 0;
 let lives = 3;
 const MAX_LIVES = 5;
+
+/* game modes & meta systems */
+let mode = '1p';                 // '1p' solo · '2p' versus
+let scores = [0, 0];             // 2P: left player / right player
+let matchTime = 0;               // 2P: seconds remaining
+let combo = 0;
+let comboTimer = 0;
+let bestCombo = 0;
+const fx = { frenzyT: 0, slowT: 0, shield: false };
+let zoneIdx = 0;
+let bossTimer = 0;
+let stats = { pops: 0, jellies: 0, gold: 0, dodged: 0 };
+
+const MATCH_SECONDS = 90;
+
+const ZONES = [
+  { t: 0, name: 'CORAL GARDEN' },
+  { t: 30, name: 'KELP FOREST' },
+  { t: 60, name: 'TWILIGHT ZONE' },
+  { t: 90, name: 'THE DEEP' },
+  { t: 130, name: 'THE ABYSS' },
+];
+
+const BADGE_KEY = 'bubblepop.badges';
+const TOP5_KEY = 'bubblepop.top5';
+const ACHIEVEMENTS = [
+  { id: 'first', name: 'First PoP', test: (s) => s.pops >= 1 },
+  { id: 'century', name: 'Century Popper', test: (s) => s.pops >= 100 },
+  { id: 'diver', name: 'Deep Diver', test: (s) => s.time >= 120 },
+  { id: 'untouchable', name: 'Untouchable', test: (s) => s.score >= 100 && s.jellies === 0 },
+  { id: 'combo15', name: 'Combo Machine', test: (s) => s.bestCombo >= 15 },
+  { id: 'gold', name: 'Gold Rush', test: (s) => s.gold >= 1 },
+  { id: 'dodger', name: 'Boss Dodger', test: (s) => s.dodged >= 1 },
+  { id: 'halfk', name: 'Half-K Club', test: (s) => s.score >= 500 },
+];
+const getBadges = () => { try { return JSON.parse(localStorage.getItem(BADGE_KEY)) || []; } catch { return []; } };
+const getTop5 = () => { try { return JSON.parse(localStorage.getItem(TOP5_KEY)) || []; } catch { return []; } };
 let bubbles = [];
 let particles = [];
 let texts = [];
@@ -363,31 +475,74 @@ const JELLY_TINTS = [
   [255, 255, 255], // deceptive white
 ];
 
+function pickGiftKind() {
+  if (mode === '2p') return srand() < 0.6 ? 'p10' : 'p25'; // versus: points only, fair fight
+  const roll = srand();
+  if (roll < 0.35) return 'p10';
+  if (roll < 0.55) return 'p25';
+  if (roll < 0.73) return 'frenzy';
+  if (roll < 0.87) return 'slow';
+  return 'shield';
+}
+
 function spawnBubble(yOffset = 0) {
   if (bubbles.length > 30) return;
   const d = difficulty();
-  const roll = Math.random();
   let type;
-  if (roll < d.o2) type = 'o2';
-  else if (roll < d.o2 + d.jelly) type = 'jelly';
-  else if (roll < d.o2 + d.jelly + d.gift) type = 'gift';
-  else type = 'life';
+  if (srand() < 0.015) {
+    type = 'gold'; // rare golden bubble — fast and worth +50
+  } else if (fx.frenzyT > 0) {
+    type = 'o2'; // FRENZY: everything is oxygen
+  } else {
+    const roll = srand();
+    if (roll < d.o2) type = 'o2';
+    else if (roll < d.o2 + d.jelly) type = 'jelly';
+    else if (roll < d.o2 + d.jelly + d.gift) type = 'gift';
+    else type = 'life';
+  }
 
   const vmin = Math.min(W, H);
-  const r = clamp(rand(0.05, 0.085) * vmin, 26, 74);
+  const gold = type === 'gold';
+  const r = gold
+    ? clamp(srange(0.035, 0.05) * vmin, 22, 44)
+    : clamp(srange(0.05, 0.085) * vmin, 26, 74);
   bubbles.push({
     type,
-    x: rand(r + 6, W - r - 6),
+    x: srange(r + 6, W - r - 6),
     y: H + r + 10 + yOffset,
     r,
-    vy: (0.121 * H + rand(-14, 24)) * d.speed,
-    phase: rand(0, Math.PI * 2),
-    wobAmp: rand(8, 26),
-    wobSpd: rand(0.9, 1.7),
-    tint: JELLY_TINTS[(Math.random() * JELLY_TINTS.length) | 0],
-    giftValue: Math.random() < 0.6 ? 10 : 25,
+    vy: (0.121 * H + srange(-14, 24)) * d.speed * (gold ? 1.7 : 1),
+    phase: srange(0, Math.PI * 2),
+    wobAmp: srange(8, 26),
+    wobSpd: srange(0.9, 1.7),
+    tint: JELLY_TINTS[(srand() * JELLY_TINTS.length) | 0],
+    giftKind: pickGiftKind(),
     popped: false,
   });
+}
+
+/* the boss — a huge jellyfish that crosses the screen; dodge it for +30 */
+function spawnBoss() {
+  const dir = srand() < 0.5 ? 1 : -1;
+  const vmin = Math.min(W, H);
+  const r = clamp(0.13 * vmin, 64, 110);
+  bubbles.push({
+    type: 'jelly',
+    boss: true,
+    x: dir === 1 ? -r - 20 : W + r + 20,
+    y: srange(0.22, 0.5) * H,
+    r,
+    vx: dir * (W * 0.09),
+    vy: 0,
+    phase: srange(0, Math.PI * 2),
+    wobAmp: 20,
+    wobSpd: 1.1,
+    tint: [200, 120, 235], // regal purple — unmistakably the boss
+    giftKind: 'p10',
+    popped: false,
+  });
+  banner('BOSS JELLY!', '#e0a0ff');
+  snd.boss();
 }
 
 /* pixel-art sprites drawn cell-by-cell on canvas */
@@ -466,13 +621,40 @@ function drawBubble(b, t) {
     ctx2d.fillText('O', b.x - fs * 0.32, b.y);
     ctx2d.font = `${Math.round(fs * 0.62)}px 'Press Start 2P', monospace`;
     ctx2d.fillText('2', b.x + fs * 0.45, b.y + fs * 0.32);
+  } else if (b.type === 'gold') {
+    // golden bubble — fast, shiny, +50
+    const g = ctx2d.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.4, b.r * 0.1, b.x, b.y, b.r);
+    g.addColorStop(0, 'rgba(255,246,205,0.95)');
+    g.addColorStop(0.55, 'rgba(255,213,90,0.8)');
+    g.addColorStop(1, 'rgba(226,158,32,0.55)');
+    ctx2d.beginPath();
+    ctx2d.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx2d.fillStyle = g;
+    ctx2d.fill();
+    ctx2d.lineWidth = 2.5;
+    ctx2d.strokeStyle = 'rgba(255,235,150,0.95)';
+    ctx2d.stroke();
+    ctx2d.beginPath();
+    ctx2d.ellipse(b.x - b.r * 0.35, b.y - b.r * 0.42, b.r * 0.22, b.r * 0.13, -0.6, 0, Math.PI * 2);
+    ctx2d.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx2d.fill();
+    // sparkle diamond in the middle
+    const s = b.r * 0.34;
+    ctx2d.beginPath();
+    ctx2d.moveTo(b.x, b.y - s);
+    ctx2d.lineTo(b.x + s * 0.55, b.y);
+    ctx2d.lineTo(b.x, b.y + s);
+    ctx2d.lineTo(b.x - s * 0.55, b.y);
+    ctx2d.closePath();
+    ctx2d.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx2d.fill();
   } else if (b.type === 'jelly') {
     const [cr, cg, cb] = b.tint;
     // tentacles first (peek from under the bubble)
-    ctx2d.strokeStyle = `rgba(${cr},${cg},${cb},0.4)`;
-    ctx2d.lineWidth = 2.4;
+    ctx2d.strokeStyle = `rgba(${cr},${cg},${cb},${b.boss ? 0.55 : 0.4})`;
+    ctx2d.lineWidth = b.boss ? 3.4 : 2.4;
     ctx2d.lineCap = 'round';
-    for (let i = -1.5; i <= 1.5; i++) {
+    for (let i = b.boss ? -2.5 : -1.5; i <= (b.boss ? 2.5 : 1.5); i++) {
       const tx = b.x + i * b.r * 0.32;
       ctx2d.beginPath();
       ctx2d.moveTo(tx, b.y + b.r * 0.72);
@@ -529,36 +711,121 @@ function bumpHud(el) {
   el.classList.add('bump');
 }
 
+const multiplier = () => (combo >= 20 ? 4 : combo >= 10 ? 3 : combo >= 5 ? 2 : 1);
+
+/** Credit points to the run — or to the correct player in 2P versus. */
+function addPoints(n, b) {
+  if (mode === '2p') {
+    const side = b.x < W / 2 ? 0 : 1;
+    scores[side] = Math.max(0, scores[side] + n);
+    const el = side === 0 ? $('#hudScore') : $('#hudBest');
+    el.textContent = scores[side];
+    bumpHud(el);
+  } else {
+    score = Math.max(0, score + n);
+    $('#hudScore').textContent = score;
+    bumpHud($('#hudScore'));
+  }
+}
+
 function popBubble(b) {
   if (b.popped) return;
   b.popped = true;
 
-  if (b.type === 'o2') {
-    score += 5;
-    snd.pop();
-    burst(b.x, b.y, b.r, '255,255,255');
-    floatText(b.x, b.y, '+5', '#ffffff');
+  if (b.type === 'o2' || b.type === 'gold') {
+    combo++;
+    comboTimer = 1.6;
+    bestCombo = Math.max(bestCombo, combo);
+    if (combo === 5) banner('COMBO x2!', '#ffe08a');
+    else if (combo === 10) banner('COMBO x3!', '#ffd94a');
+    else if (combo === 20) banner('COMBO x4!', '#ffb340');
+    const mult = multiplier();
+    const pts = (b.type === 'gold' ? 50 : 5) * mult;
+    stats.pops++;
+    if (b.type === 'gold') {
+      stats.gold++;
+      snd.gold();
+      burst(b.x, b.y, b.r, '255,215,80');
+    } else {
+      snd.pop(combo);
+      burst(b.x, b.y, b.r, '255,255,255');
+    }
+    addPoints(pts, b);
+    floatText(b.x, b.y, `+${pts}${mult > 1 ? ' x' + mult : ''}`, b.type === 'gold' ? '#ffd94a' : '#ffffff');
   } else if (b.type === 'jelly') {
-    lives--;
-    snd.jelly();
+    combo = 0;
+    stats.jellies++;
     burst(b.x, b.y, b.r, `${b.tint[0]},${b.tint[1]},${b.tint[2]}`);
-    skullFlash();
-    renderLives();
-    if (lives <= 0) { endGame(); return; }
+    if (mode === '2p') {
+      snd.jelly();
+      skullFlash();
+      addPoints(-25, b);
+      floatText(b.x, b.y, '-25', '#ff6a7a');
+    } else if (fx.shield) {
+      fx.shield = false;
+      snd.shieldBreak();
+      banner('SHIELD SAVED YOU!', '#9fd8ff');
+      renderLives();
+    } else {
+      lives--;
+      snd.jelly();
+      skullFlash();
+      renderLives();
+      if (lives <= 0) { endGame(); return; }
+    }
   } else if (b.type === 'gift') {
-    score += b.giftValue;
-    snd.gift();
+    stats.pops++;
     burst(b.x, b.y, b.r, '255,215,130');
-    floatText(b.x, b.y, '+' + b.giftValue, '#ffd982');
+    const kind = b.giftKind;
+    if (kind === 'p10' || kind === 'p25') {
+      const v = kind === 'p10' ? 10 : 25;
+      snd.gift();
+      addPoints(v, b);
+      floatText(b.x, b.y, '+' + v, '#ffd982');
+    } else if (kind === 'frenzy') {
+      fx.frenzyT = 6;
+      snd.frenzy();
+      banner('FRENZY!', '#ffd94a');
+    } else if (kind === 'slow') {
+      fx.slowT = 6;
+      snd.slow();
+      banner('SLOW-MO!', '#9fd8ff');
+    } else {
+      fx.shield = true;
+      snd.shield();
+      banner('SHIELD!', '#9fd8ff');
+      renderLives();
+    }
   } else {
+    stats.pops++;
     lives = Math.min(MAX_LIVES, lives + 1);
     snd.life();
     burst(b.x, b.y, b.r, '255,150,190');
     floatText(b.x, b.y, '+1 ♥', '#ff9ec2');
     renderLives(true);
   }
-  $('#hudScore').textContent = score;
-  bumpHud($('#hudScore'));
+}
+
+let bannerT = 0;
+function banner(text, color = '#fff') {
+  const el = $('#banner');
+  el.textContent = text;
+  el.style.color = color;
+  el.hidden = false;
+  el.style.animation = 'none';
+  void el.offsetWidth;
+  el.style.animation = '';
+  clearTimeout(bannerT);
+  bannerT = setTimeout(() => { el.hidden = true; }, 1500);
+}
+
+let toastT = 0;
+function toast(text) {
+  const el = $('#toast');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.classList.remove('show'), 2200);
 }
 
 function skullFlash() {
@@ -573,6 +840,12 @@ function skullFlash() {
   skullFlash.t = setTimeout(() => { el.hidden = true; }, 700);
 }
 
+const SHIELD_SVG =
+  '<svg viewBox="0 0 8 8" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">' +
+  '<g fill="#8fd4ff"><rect x="1" y="0" width="6" height="1"/><rect x="1" y="1" width="6" height="3"/>' +
+  '<rect x="2" y="4" width="4" height="2"/><rect x="3" y="6" width="2" height="1"/></g>' +
+  '<rect x="3" y="1" width="1" height="3" fill="#e8f7ff"/></svg>';
+
 function renderLives(gained) {
   const wrap = $('#hudLives');
   const slots = Math.max(3, lives);
@@ -582,6 +855,12 @@ function renderLives(gained) {
     s.className = 'heart' + (i >= lives ? ' lost' : '');
     if (gained && i === lives - 1) s.classList.add('gain');
     s.innerHTML = heartSVG(i < lives);
+    wrap.appendChild(s);
+  }
+  if (fx.shield) {
+    const s = document.createElement('span');
+    s.className = 'heart gain';
+    s.innerHTML = SHIELD_SVG;
     wrap.appendChild(s);
   }
 }
@@ -606,17 +885,17 @@ canvas.addEventListener('pointerdown', (e) => {
   popAt(e.clientX, e.clientY, 14);
 });
 
-/* MediaPipe Tasks Vision — hand landmarker only (mouth tracking removed:
-   a second model made lower-end machines crawl). */
-const VISION_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
-const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+/* MediaPipe Tasks Vision — hand landmarker only, fully self-hosted
+   (no third-party CDN at runtime; files pinned in vendor/). */
+const VISION_BASE = './vendor/tasks-vision';
+const HAND_MODEL = `${VISION_BASE}/hand_landmarker.task`;
 
 async function preloadVision() {
   if (preloadVision.started) return;
   preloadVision.started = true;
   try {
-    const vision = await import(`${VISION_CDN}/vision_bundle.mjs`);
-    const fileset = await vision.FilesetResolver.forVisionTasks(`${VISION_CDN}/wasm`);
+    const vision = await import(`${VISION_BASE}/vision_bundle.mjs`);
+    const fileset = await vision.FilesetResolver.forVisionTasks(`${VISION_BASE}/wasm`);
 
     const build = (delegate) =>
       vision.HandLandmarker.createFromOptions(fileset, {
@@ -757,9 +1036,45 @@ function initDust() {
 
 /* ─────────────────────── GAME LOOP ───────────────────────────── */
 
-function update(dt, t) {
+function update(dtReal, t) {
+  // slow-mo bends game time but not real time (timers/effects use real dt)
+  const slowFactor = fx.slowT > 0 ? 0.45 : 1;
+  const dt = dtReal * slowFactor;
+
   elapsed += dt;
   const d = difficulty();
+
+  // timed power-ups
+  if (fx.frenzyT > 0) fx.frenzyT -= dtReal;
+  if (fx.slowT > 0) fx.slowT -= dtReal;
+
+  // combo decay
+  if (comboTimer > 0) {
+    comboTimer -= dtReal;
+    if (comboTimer <= 0 && combo > 0) combo = 0;
+  }
+
+  // 2P match clock
+  if (mode === '2p') {
+    matchTime -= dtReal;
+    $('#matchClock').textContent = Math.max(0, Math.ceil(matchTime));
+    if (matchTime <= 0) { endGame(); return; }
+  } else {
+    // zone progression (solo only)
+    let zi = 0;
+    for (let i = 0; i < ZONES.length; i++) if (elapsed >= ZONES[i].t) zi = i;
+    if (zi !== zoneIdx) {
+      zoneIdx = zi;
+      if (zi > 0) { banner('▼ ' + ZONES[zi].name, '#bfe8ff'); snd.zone(); }
+      screens.game.style.setProperty('--depth', Math.min(zi * 0.11, 0.44));
+    }
+    // boss jellyfish appears occasionally from ~35s in
+    bossTimer -= dtReal;
+    if (elapsed > 35 && bossTimer <= 0 && !bubbles.some((b) => b.boss)) {
+      spawnBoss();
+      bossTimer = rand(22, 34);
+    }
+  }
 
   spawnTimer -= dt * 1000;
   if (spawnTimer <= 0) {
@@ -767,7 +1082,7 @@ function update(dt, t) {
     spawnTimer = d.spawnMs * rand(0.8, 1.2);
   }
 
-  fishTimer -= dt;
+  fishTimer -= dtReal;
   if (fishTimer <= 0) {
     spawnFish();
     if (Math.random() < 0.35) spawnFish(); // sometimes a pair swims by
@@ -775,11 +1090,26 @@ function update(dt, t) {
   }
 
   for (const b of bubbles) {
-    b.y -= b.vy * dt;
-    b.x += Math.sin(t * b.wobSpd + b.phase) * b.wobAmp * dt;
-    b.x = clamp(b.x, b.r * 0.6, W - b.r * 0.6);
+    if (b.boss) {
+      b.x += b.vx * dt;
+      b.y += Math.sin(t * 1.1 + b.phase) * 20 * dt;
+      // dodged the boss? (fully crossed without being popped)
+      if ((b.vx > 0 && b.x > W + b.r + 20) || (b.vx < 0 && b.x < -b.r - 20)) {
+        if (!b.popped) {
+          b.popped = true;
+          stats.dodged++;
+          addPoints(30, { x: W / 2 });
+          banner('DODGED! +30', '#9dffa8');
+          snd.dodge();
+        }
+      }
+    } else {
+      b.y -= b.vy * dt;
+      b.x += Math.sin(t * b.wobSpd + b.phase) * b.wobAmp * dt;
+      b.x = clamp(b.x, b.r * 0.6, W - b.r * 0.6);
+    }
   }
-  bubbles = bubbles.filter((b) => !b.popped && b.y > -b.r - 40);
+  bubbles = bubbles.filter((b) => !b.popped && (b.boss || b.y > -b.r - 40));
 
   // fingertip popping — works with both hands at once
   for (const p of pointers) popAt(p.x, p.y, 12);
@@ -850,6 +1180,30 @@ function draw(t) {
   }
 
   drawCursors();
+
+  // power-up screen tints
+  if (fx.frenzyT > 0) {
+    ctx2d.fillStyle = `rgba(255,200,60,${0.06 + Math.sin(t * 8) * 0.03})`;
+    ctx2d.fillRect(0, 0, W, H);
+  }
+  if (fx.slowT > 0) {
+    ctx2d.fillStyle = 'rgba(90,170,255,0.08)';
+    ctx2d.fillRect(0, 0, W, H);
+  }
+
+  // combo meter (solo) — a little pill under the score
+  if (mode !== '2p' && combo >= 2) {
+    const m = multiplier();
+    ctx2d.font = `${clamp(W * 0.028, 12, 18)}px 'Press Start 2P', monospace`;
+    ctx2d.textAlign = 'left';
+    ctx2d.textBaseline = 'top';
+    ctx2d.fillStyle = m >= 3 ? '#ffb340' : m >= 2 ? '#ffe08a' : '#ffffff';
+    ctx2d.shadowColor = 'rgba(0,0,0,0.6)';
+    ctx2d.shadowBlur = 6;
+    const bx = Math.max(20, W * 0.02);
+    ctx2d.fillText(`${combo} COMBO${m > 1 ? '  x' + m : ''}`, bx, 86);
+    ctx2d.shadowBlur = 0;
+  }
 }
 
 /** Glowing fingertip cursors — one per detected hand. */
@@ -907,6 +1261,7 @@ async function countdown() {
 
 function resetState() {
   score = 0;
+  scores = [0, 0];
   lives = 3;
   elapsed = 0;
   spawnTimer = 400;
@@ -914,10 +1269,43 @@ function resetState() {
   bubbles = [];
   particles = [];
   texts = [];
-  $('#hudScore').textContent = '0';
-  $('#hudBest').textContent = getBest();
+  combo = 0;
+  comboTimer = 0;
+  bestCombo = 0;
+  zoneIdx = 0;
+  bossTimer = rand(30, 42);
+  matchTime = MATCH_SECONDS;
+  fx.frenzyT = 0; fx.slowT = 0; fx.shield = false;
+  stats = { pops: 0, jellies: 0, gold: 0, dodged: 0 };
+  screens.game.style.setProperty('--depth', 0);
+  if (mode === '2p') seedForMatch();
+  else if (dailyMode) seedDaily();
+  else srand = Math.random;
+
+  // HUD swaps between solo and versus layouts
+  screens.game.classList.toggle('is-2p', mode === '2p');
+  if (mode === '2p') {
+    $('#hudScoreLabel').textContent = 'P1';
+    $('#hudBestLabel').textContent = 'P2';
+    $('#hudScore').textContent = '0';
+    $('#hudBest').textContent = '0';
+  } else {
+    $('#hudScoreLabel').textContent = 'SCORE';
+    $('#hudBestLabel').textContent = 'BEST';
+    $('#hudScore').textContent = '0';
+    $('#hudBest').textContent = getBest();
+  }
+  $('#matchClockChip').hidden = mode !== '2p';
+  $('#hudLives').style.display = mode === '2p' ? 'none' : '';
   $('#gameOver').hidden = true;
   renderLives();
+}
+
+let dailyMode = false;
+function seedForMatch() {
+  // shared RNG per match so both players face the same bubbles
+  let h = (Date.now() / 1000) | 0;
+  srand = mulberry32(h);
 }
 
 function beginRun() {
@@ -949,15 +1337,76 @@ function endGame() {
   cancelAnimationFrame(rafId);
   music.stop();
 
+  if (mode === '2p') return endMatch();
+
   const best = getBest();
   const isRecord = score > best;
   if (isRecord) localStorage.setItem(BEST_KEY, String(score));
+
+  // record run into local top-5 leaderboard
+  const top = getTop5();
+  top.push({ score, date: new Date().toISOString().slice(0, 10) });
+  top.sort((a, b) => b.score - a.score);
+  localStorage.setItem(TOP5_KEY, JSON.stringify(top.slice(0, 5)));
+
+  // unlock achievements
+  const runStats = { ...stats, score, time: elapsed, bestCombo };
+  const had = getBadges();
+  const now = ACHIEVEMENTS.filter((a) => a.test(runStats)).map((a) => a.id);
+  const fresh = now.filter((id) => !had.includes(id));
+  localStorage.setItem(BADGE_KEY, JSON.stringify([...new Set([...had, ...now])]));
+
   if (isRecord) snd.record(); else snd.over();
 
+  $('#goTitle').textContent = 'GAME OVER';
+  $('#goSub').textContent = 'The jellyfish got you…';
   $('#goScore').textContent = score;
   $('#goBest').textContent = Math.max(best, score);
   $('#goRecord').hidden = !isRecord;
+  renderGoBadges(fresh);
+  renderShare(score);
   setTimeout(() => { $('#gameOver').hidden = false; }, 750);
+}
+
+function endMatch() {
+  const p1 = scores[0], p2 = scores[1];
+  const winner = p1 === p2 ? 'TIE!' : p1 > p2 ? 'PLAYER 1 WINS!' : 'PLAYER 2 WINS!';
+  snd.record();
+  $('#goTitle').textContent = winner;
+  $('#goSub').textContent = `P1 ${p1}  ·  P2 ${p2}`;
+  $('#goScore').textContent = p1;
+  $('#goBest').textContent = p2;
+  $('#goRecord').hidden = true;
+  $('#goBadges').innerHTML = '';
+  renderShare(Math.max(p1, p2));
+  setTimeout(() => { $('#gameOver').hidden = false; }, 700);
+}
+
+function renderGoBadges(fresh) {
+  const wrap = $('#goBadges');
+  const owned = getBadges();
+  wrap.innerHTML = '';
+  if (!owned.length) return;
+  ACHIEVEMENTS.forEach((a) => {
+    if (!owned.includes(a.id)) return;
+    const b = document.createElement('span');
+    b.className = 'badge' + (fresh.includes(a.id) ? ' fresh' : '');
+    b.textContent = a.name;
+    wrap.appendChild(b);
+  });
+}
+
+function renderShare(sc) {
+  const btn = $('#btnShare');
+  btn.onclick = async () => {
+    snd.click();
+    const url = location.origin + location.pathname;
+    const text = `I scored ${sc} in Bubble PoP! 🫧 Can you beat me? ${url}`;
+    try {
+      if (navigator.share) await navigator.share({ title: 'Bubble PoP', text, url });
+      else { await navigator.clipboard.writeText(text); toast('Score copied — paste it to a friend!'); }
+    } catch (e) { /* user cancelled */ }
+  };
 }
 
 /* ─────────────────── PAUSE / RESUME ──────────────────────────── */
@@ -996,14 +1445,19 @@ $('#btnStart').addEventListener('click', async () => {
   await bubbleWash(() => openInstructions());
 });
 
-$('#btnPlay').addEventListener('click', async () => {
-  snd.click();
+function launch(chosenMode, daily) {
+  mode = chosenMode;
+  dailyMode = !!daily;
   music.stop();
-  await bubbleWash(() => {
+  return bubbleWash(() => {
     showScreen('game');
     startGame();
   });
-});
+}
+
+$('#btnPlay').addEventListener('click', () => { snd.click(); launch('1p', false); });
+$('#btnDaily') && $('#btnDaily').addEventListener('click', () => { snd.click(); launch('1p', true); });
+$('#btnVersus') && $('#btnVersus').addEventListener('click', () => { snd.click(); launch('2p', false); });
 
 $('#btnRetry').addEventListener('click', async () => {
   snd.click();
