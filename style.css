@@ -44,14 +44,20 @@ button { font: inherit; cursor: pointer; }
 }
 .screen.is-active { display: block; }
 
-/* gradient paints instantly; the photo fades in only when fully loaded,
-   so it never renders half-drawn top-to-bottom */
+/* A tiny inlined blurred thumbnail paints instantly (no network wait),
+   then the full photo fades in on top once it has fully downloaded —
+   so a first-time visitor never sees a blank or half-drawn background. */
 .aquarium-bg {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(120% 90% at 50% -10%, #d4f0fc 0%, transparent 55%),
-    linear-gradient(180deg, #9cd6f2 0%, #5aabd4 45%, #3d8bb0 80%, #2e7f9e 100%);
+  background: #7fc4d8 url('data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAASABIAAD/4QBMRXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAIKADAAQAAAABAAAAGAAAAAD/wAARCAAYACADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9sAQwAJCQkJCQkQCQkQFhAQEBYeFhYWFh4mHh4eHh4mLiYmJiYmJi4uLi4uLi4uNzc3Nzc3QUFBQUFJSUlJSUlJSUlJ/9sAQwELDAwSERIgEREgTDMqM0xMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExM/90ABAAC/9oADAMBAAIRAxEAPwC9a8qSRxXV6ffxQ8OAAvTiudk1GNrBbiaExZbAIHHX0qIXLSRtLapvYEfL+POM4HTtXovFRqO01ofOVcprUJc9KV2dRf36Ou+A9DgjHBBrkrwlskDOKctxNNCzyjygSVxxnA74BNPiNlIHmuJvKVBzjgn8+M1ccVTpqyIWVV60ueoz/9CXSdWn1KN4WdUi5BJHVj7fh2ojuYX3W92jQs2NpVyAcevNYXhn/j1/7af1NXL7/j5T/eFKotWdsZe0jaSN6xi0mRDEz4kXJBDFyc+x4qre65aIv2ZY0ePsmPvfiM/rWbpH/H6fxrnZv9dF/wAB/k1Jb2NXTjTm4xWh/9k=') center / cover no-repeat;
+}
+.aquarium-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 .aquarium-bg::after {
   content: '';
@@ -59,7 +65,7 @@ button { font: inherit; cursor: pointer; }
   inset: 0;
   background: url('assets/aquarium.jpg') center / cover no-repeat;
   opacity: 0;
-  transition: opacity 0.7s ease;
+  transition: opacity 0.6s ease;
 }
 .aquarium-bg.bg-loaded::after { opacity: 1; }
 .aquarium-bg.dimmed { filter: brightness(0.75) saturate(0.9); }
@@ -409,17 +415,6 @@ button { font: inherit; cursor: pointer; }
 .top5 b { font-family: 'Press Start 2P', monospace; font-size: clamp(11px, 1.6vw, 14px); color: var(--ink); }
 .top5 .t5-date { margin-left: auto; font-size: 11px; color: #9a8666; }
 .top5 .t5-empty { color: #9a8666; font-style: italic; }
-.badge-shelf { display: flex; flex-wrap: wrap; gap: 6px; }
-.shelf-badge {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 7.5px;
-  padding: 5px 7px;
-  border-radius: 5px;
-  background: #e7ded0;
-  color: #b0a48e;
-  line-height: 1.4;
-}
-.shelf-badge.got { background: #ffe08a; color: #6b5335; }
 
 @media (max-width: 640px) {
   .manual-body { grid-template-columns: 1fr; gap: 14px; padding: 14px; }
@@ -488,10 +483,10 @@ button { font: inherit; cursor: pointer; }
     /* sunlit surface above, deep ocean blue below — +20% blue intensity */
     linear-gradient(
       180deg,
-      rgba(200, 238, 255, 0.15) 0%,
-      rgba(60, 160, 235, 0.46) 35%,
-      rgba(8, 68, 175, 0.75) 68%,
-      rgba(2, 22, 92, 0.95) 100%
+      rgba(90, 205, 255, 0.32) 0%,
+      rgba(50, 165, 240, 0.5) 35%,
+      rgba(8, 78, 185, 0.76) 68%,
+      rgba(2, 24, 96, 0.95) 100%
     );
   mix-blend-mode: multiply;
   pointer-events: none;
@@ -507,18 +502,21 @@ button { font: inherit; cursor: pointer; }
   position: absolute;
   inset: -30% -10% 0;
   background:
-    linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.2) 45%, transparent 50%),
-    linear-gradient(95deg, transparent 58%, rgba(255, 255, 255, 0.15) 63%, transparent 68%),
-    linear-gradient(115deg, transparent 74%, rgba(255, 255, 255, 0.17) 78%, transparent 83%);
+    radial-gradient(60% 40% at 52% -6%, rgba(220, 245, 255, 0.35), transparent 70%),
+    linear-gradient(104deg, transparent 38%, rgba(255, 255, 255, 0.34) 45%, transparent 51%),
+    linear-gradient(96deg, transparent 56%, rgba(255, 255, 255, 0.26) 62%, transparent 69%),
+    linear-gradient(114deg, transparent 72%, rgba(255, 255, 255, 0.3) 78%, transparent 84%),
+    linear-gradient(88deg, transparent 20%, rgba(255, 255, 255, 0.2) 26%, transparent 31%);
   /* dissolve softly into the deep — no visible edge at any screen size */
-  -webkit-mask-image: linear-gradient(180deg, #000 30%, transparent 78%);
-  mask-image: linear-gradient(180deg, #000 30%, transparent 78%);
+  -webkit-mask-image: linear-gradient(180deg, #000 35%, transparent 82%);
+  mask-image: linear-gradient(180deg, #000 35%, transparent 82%);
+  mix-blend-mode: screen;
   animation: rays-sway 9s ease-in-out infinite alternate;
   pointer-events: none;
 }
 @keyframes rays-sway {
-  from { transform: translateX(-2.5%) skewX(-2deg); opacity: 0.75; }
-  to   { transform: translateX(2.5%) skewX(2deg); opacity: 1; }
+  from { transform: translateX(-3%) skewX(-2.5deg); opacity: 0.85; }
+  to   { transform: translateX(3%) skewX(2.5deg); opacity: 1; }
 }
 
 /* swimming fish */
@@ -688,24 +686,6 @@ button { font: inherit; cursor: pointer; }
   transition: opacity 0.3s ease, transform 0.3s ease;
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
-
-/* game-over badges */
-.go-badges { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 12px; }
-.go-badges .badge {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 8px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: #ffe08a;
-  color: #6b5335;
-  line-height: 1.4;
-}
-.go-badges .badge.fresh {
-  background: var(--nintendo-red);
-  color: #fff;
-  animation: badge-pop 0.5s ease both;
-}
-@keyframes badge-pop { 0% { transform: scale(0); } 70% { transform: scale(1.25); } 100% { transform: scale(1); } }
 
 /* victory confetti */
 .confetti { position: fixed; inset: 0; z-index: 15; pointer-events: none; overflow: hidden; }

@@ -368,7 +368,6 @@ function openInstructions() {
     box.hidden = true;
   }
   renderTop5();
-  renderBadgeShelf();
   preloadVision(); // warm the hand model while the player reads
   showScreen('instructions');
   music.start('manual');
@@ -384,14 +383,6 @@ function renderTop5() {
     .join('');
 }
 
-function renderBadgeShelf() {
-  const wrap = $('#badgeShelf');
-  if (!wrap) return;
-  const owned = getBadges();
-  wrap.innerHTML = ACHIEVEMENTS
-    .map((a) => `<span class="shelf-badge${owned.includes(a.id) ? ' got' : ''}" title="${a.name}">${owned.includes(a.id) ? '★' : '☆'} ${a.name}</span>`)
-    .join('');
-}
 
 /* ─────────────────────── GAME STATE ──────────────────────────── */
 
@@ -449,20 +440,7 @@ const ZONES = [
   { t: 130, name: 'THE ABYSS' },
 ];
 
-const BADGE_KEY = 'bubblepop.badges';
 const TOP5_KEY = 'bubblepop.top5';
-const ACHIEVEMENTS = [
-  { id: 'first', name: 'First PoP', test: (s) => s.pops >= 1 },
-  { id: 'century', name: 'Century Popper', test: (s) => s.pops >= 100 },
-  { id: 'diver', name: 'Deep Diver', test: (s) => s.time >= 120 },
-  { id: 'untouchable', name: 'Untouchable', test: (s) => s.score >= 100 && s.jellies === 0 },
-  { id: 'combo15', name: 'Combo Machine', test: (s) => s.bestCombo >= 15 },
-  { id: 'gold', name: 'Gold Rush', test: (s) => s.gold >= 1 },
-  { id: 'dodger', name: 'Boss Dodger', test: (s) => s.dodged >= 1 },
-  { id: 'halfk', name: 'Half-K Club', test: (s) => s.score >= 500 },
-  { id: 'survivor', name: 'Survivor', test: (s) => s.survived },
-];
-const getBadges = () => { try { return JSON.parse(localStorage.getItem(BADGE_KEY)) || []; } catch { return []; } };
 const getTop5 = () => { try { return JSON.parse(localStorage.getItem(TOP5_KEY)) || []; } catch { return []; } };
 let bubbles = [];
 let particles = [];
@@ -502,10 +480,14 @@ function difficulty() {
 }
 
 /* ─────────────────────── LEVELS ──────────────────────────────── */
-// Level 2 at 250, Level 3 at 500 — survive to 700 to win.
-const LEVEL_SCORES = [0, 250, 500];
-const WIN_SCORE = 700;
+// Level 2 at 350, Level 3 at 700 — survive to 1200 to win.
+const LEVEL_SCORES = [0, 350, 700];
+const WIN_SCORE = 1200;
 let won = false;
+// score milestones a boss guards; the last one (the win) is the final boss
+const MILESTONES = [350, 700, 1200];
+const BOSS_PROXIMITY = 100;   // boss appears within this many points of a milestone
+let bossDone = new Set();
 const jellySpeedMult = () => 1 + (level - 1) * 0.28;  // jellies get faster each level
 const bossSpeedMult = () => 1 + (level - 1) * 0.4;    // boss gets meaner each level
 
@@ -534,11 +516,6 @@ function onLevelUp() {
   $('#hudLevel').textContent = 'Lv' + level;
   $('#hudLevel').hidden = false;
   bumpHud($('#hudLevel'));
-  // Level 3 warning: the final boss is coming
-  if (level >= 3) {
-    bossTimer = 4; // the final boss shows up quickly
-    setTimeout(() => { if (running === true) banner('⚠ FINAL BOSS AHEAD ⚠', '#ff8a8a'); }, 1600);
-  }
 }
 
 /* ────────────────────── BUBBLES ──────────────────────────────── */
@@ -598,10 +575,10 @@ function spawnBubble(yOffset = 0) {
 /* the boss — a huge jellyfish that crosses the screen; dodge it for +30.
    At Level 3 it becomes the FINAL BOSS: bigger, red, and it releases a
    pack of little vicious jellies as it passes the middle. */
-function spawnBoss() {
+function spawnBoss(isFinal) {
   const dir = srand() < 0.5 ? 1 : -1;
   const vmin = Math.min(W, H);
-  const finalBoss = level >= 3;
+  const finalBoss = !!isFinal;
   const r = clamp((finalBoss ? 0.17 : 0.13) * vmin, finalBoss ? 90 : 64, finalBoss ? 150 : 110);
   bubbles.push({
     type: 'jelly',
@@ -1183,12 +1160,16 @@ function update(dtReal, t) {
     if (matchTime <= 0) { endGame(); return; }
   } else {
     // depth/darkening is driven by the level system (see onLevelUp).
-    // boss jellyfish appears occasionally — sooner & more often at higher levels
-    bossTimer -= dtReal;
-    const bossReady = level >= 2 ? 15 : 35;
-    if (elapsed > bossReady && bossTimer <= 0 && !bubbles.some((b) => b.boss)) {
-      spawnBoss();
-      bossTimer = rand(22 - (level - 1) * 3, 34 - (level - 1) * 4);
+    // a boss guards each milestone — it appears as you close in on the
+    // next level-up (or the win), never at random.
+    if (!bubbles.some((b) => b.boss)) {
+      for (const m of MILESTONES) {
+        if (!bossDone.has(m) && score >= m - BOSS_PROXIMITY) {
+          bossDone.add(m);
+          spawnBoss(m === WIN_SCORE);
+          break;
+        }
+      }
     }
   }
 
@@ -1401,6 +1382,7 @@ function resetState() {
   zoneIdx = 0;
   level = 1;
   won = false;
+  bossDone = new Set();
   bossTimer = rand(30, 42);
   matchTime = MATCH_SECONDS;
   fx.frenzyT = 0; fx.slowT = 0; fx.shield = false;
@@ -1460,7 +1442,7 @@ async function startGame() {
   beginRun();
 }
 
-/** Persist a finished solo run; returns { best, isRecord, fresh badges }. */
+/** Persist a finished solo run; returns { best, isRecord }. */
 function saveRun() {
   const best = getBest();
   const isRecord = score > best;
@@ -1470,13 +1452,7 @@ function saveRun() {
   top.push({ score, date: new Date().toISOString().slice(0, 10) });
   top.sort((a, b) => b.score - a.score);
   localStorage.setItem(TOP5_KEY, JSON.stringify(top.slice(0, 5)));
-
-  const runStats = { ...stats, score, time: elapsed, bestCombo, survived: won };
-  const had = getBadges();
-  const now = ACHIEVEMENTS.filter((a) => a.test(runStats)).map((a) => a.id);
-  const fresh = now.filter((id) => !had.includes(id));
-  localStorage.setItem(BADGE_KEY, JSON.stringify([...new Set([...had, ...now])]));
-  return { best, isRecord, fresh };
+  return { best, isRecord };
 }
 
 function endGame() {
@@ -1487,7 +1463,7 @@ function endGame() {
 
   if (mode === '2p') return endMatch();
 
-  const { best, isRecord, fresh } = saveRun();
+  const { best, isRecord } = saveRun();
   if (isRecord) snd.record(); else snd.over();
 
   const card = $('#gameOver .go-card');
@@ -1497,7 +1473,6 @@ function endGame() {
   $('#goScore').textContent = score;
   $('#goBest').textContent = Math.max(best, score);
   $('#goRecord').hidden = !isRecord;
-  renderGoBadges(fresh);
   renderShare(score);
   setTimeout(() => { $('#gameOver').hidden = false; }, 750);
 }
@@ -1510,7 +1485,7 @@ function winGame() {
   music.stop();
   snd.victory();
 
-  const { best, isRecord, fresh } = saveRun();
+  const { best, isRecord } = saveRun();
 
   // grand celebration: rising bubbles + confetti burst
   bubbleWash();
@@ -1523,7 +1498,6 @@ function winGame() {
   $('#goScore').textContent = score;
   $('#goBest').textContent = Math.max(best, score);
   $('#goRecord').hidden = !isRecord;
-  renderGoBadges(fresh);
   renderShare(score);
   setTimeout(() => { $('#gameOver').hidden = false; }, 1600);
 }
@@ -1554,23 +1528,8 @@ function endMatch() {
   $('#goScore').textContent = p1;
   $('#goBest').textContent = p2;
   $('#goRecord').hidden = true;
-  $('#goBadges').innerHTML = '';
   renderShare(Math.max(p1, p2));
   setTimeout(() => { $('#gameOver').hidden = false; }, 700);
-}
-
-function renderGoBadges(fresh) {
-  const wrap = $('#goBadges');
-  const owned = getBadges();
-  wrap.innerHTML = '';
-  if (!owned.length) return;
-  ACHIEVEMENTS.forEach((a) => {
-    if (!owned.includes(a.id)) return;
-    const b = document.createElement('span');
-    b.className = 'badge' + (fresh.includes(a.id) ? ' fresh' : '');
-    b.textContent = a.name;
-    wrap.appendChild(b);
-  });
 }
 
 function renderShare(sc) {
